@@ -3,10 +3,12 @@
   "productName": "Arrow Escape",
   "version": "1.0.0",
   "description": "Arrow Escape 퍼즐 게임의 Mac 앱 껍데기 — 게임 로직은 web/index.html(웹)이 단일 진실 소스",
+  "author": "kangsuek",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --mac"
+    "dist": "electron-builder --mac",
+    "dist:dmg": "electron-builder --mac dmg"
   },
   "build": {
     "appId": "com.kangsuek.arrowescape",

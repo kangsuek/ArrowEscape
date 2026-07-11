@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Arrow Escape 아이콘 디자인</title>
+<style>body { margin: 0; background: transparent; } canvas { display: block; }</style>
+</head>
+<body>
+<!-- 1024×1024 앱 아이콘: 게임과 같은 시각 언어(둥근 뱀 화살표)로 그린다 -->
+<canvas id="icon" width="1024" height="1024"></canvas>
+<script>
+'use strict';
+const ctx = document.getElementById('icon').getContext('2d');
+const S = 1024, M = 96, R = 190; // 여백, 모서리 반경 (macOS 스쿼클 비율 근사)
+
+// 배경 스쿼클
+const g = ctx.createLinearGradient(0, M, 0, S - M);
+g.addColorStop(0, '#2c3044');
+g.addColorStop(1, '#1b1d28');
+ctx.beginPath();
+ctx.roundRect(M, M, S - M * 2, S - M * 2, R);
+ctx.fillStyle = g;
+ctx.fill();
+
+// 화살표는 스쿼클 안에만 그려지도록 클리핑
+ctx.save();
+ctx.beginPath();
+ctx.roundRect(M, M, S - M * 2, S - M * 2, R);
+ctx.clip();
+
+function snake(pts, color, width, headLen, headHalf) {
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = width;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.stroke();
+  // 화살촉: 마지막 구간 방향으로 삼각형
+  const [ax, ay] = pts[pts.length - 2], [bx, by] = pts[pts.length - 1];
+  const m = Math.hypot(bx - ax, by - ay), dx = (bx - ax) / m, dy = (by - ay) / m;
+  const px = -dy, py = dx;
+  ctx.beginPath();
+  ctx.moveTo(bx + dx * headLen, by + dy * headLen);
+  ctx.lineTo(bx - dx * width * 0.1 + px * headHalf, by - dy * width * 0.1 + py * headHalf);
+  ctx.lineTo(bx - dx * width * 0.1 - px * headHalf, by - dy * width * 0.1 - py * headHalf);
+  ctx.closePath();
+  ctx.fill();
+}
+
+// 보조 화살표 (얽힘 느낌) — 민트와 겹치지 않는 빈 공간에 배치
+snake([[248, 252], [500, 252], [500, 356]], '#9257d6', 74, 74, 76);   // 보라: 아래로
+snake([[820, 850], [660, 850]], '#e0447a', 70, 70, 70);               // 핑크: 왼쪽으로
+
+// 주인공 민트 화살표: 구불구불 감았다가 위로 탈출
+snake(
+  [[286, 790], [286, 532], [543, 532], [543, 730], [762, 730], [762, 322]],
+  '#8df0d5', 96, 96, 100
+);
+
+ctx.restore();
+</script>
+</body>
+</html>
