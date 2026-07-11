@@ -179,6 +179,165 @@ function buildMask(shape) {
   return {mask: m, zones: z, zoneCount: cnt};
 }
 
+// ---------- 지형(터널): 포털 · 파이프 ----------
+// 판에 고정된 지형. 화살표 몸통은 지형 칸에 배치될 수 없고, 탈출 광선만
+// traceRay() 규칙에 따라 통과한다. 규칙 상세는 GENERATION_RULES.md 참조.
+
+let terrain = [];   // terrain[r][c] = null | {type:'portal', pair, color} | {type:'pipe', pipe, enter}
+let portals = [];   // [{a:{r,c}, b:{r,c}, color}]
+let pipes = [];     // [{kind, lines:[{cells, d0, d1}], cells}]
+
+const PORTAL_COLORS = ['#ffce3d', '#3be2f0', '#ff5ad1']; // 화살표 팔레트와 겹치지 않는 금·청록·자홍
+
+function dirIdx(d) { return d.dr === -1 ? 0 : d.dr === 1 ? 1 : d.dc === -1 ? 2 : 3; }
+function oppDir(d) { return {dr: -d.dr, dc: -d.dc}; }
+
+// 포털 쌍·파이프 수: 레벨 1~4 → 1개, 5~8 → 2개, 9+ → 3개
+function terrainCount(lv) { return Math.min(3, 1 + Math.floor((lv - 1) / 4)); }
+
+// 파이프 모양(상대 좌표). lines = 관 내부 경로들: cells 순서가 곧 경로, d0/d1 은 양 끝 개구 방향.
+// ㄱ/ㄴ 은 회전으로 서로 같은 모양이라 하나로 다루고, 무작위 회전(0~270°)을 적용한다.
+function makePipeShape() {
+  const U = {dr: -1, dc: 0}, D = {dr: 1, dc: 0}, L = {dr: 0, dc: -1}, R = {dr: 0, dc: 1};
+  const kind = ['-', 'ㄱ', 'ㄴ', 'ㄷ', '+'][Math.floor(Math.random() * 5)];
+  let lines;
+  if (kind === '-') {
+    const len = 3 + Math.floor(Math.random() * 3); // 3~5칸 직선 관통
+    lines = [{cells: Array.from({length: len}, (_, i) => ({r: 0, c: i})), d0: L, d1: R}];
+  } else if (kind === 'ㄱ' || kind === 'ㄴ') { // 팔 2+2(모서리 공유) → 90° 꺾임
+    lines = [{cells: [{r: 0, c: 0}, {r: 0, c: 1}, {r: 1, c: 1}], d0: L, d1: D}];
+  } else if (kind === 'ㄷ') { // 팔 2+3+2(모서리 공유) → 방향 반전
+    lines = [{cells: [{r: 0, c: 1}, {r: 0, c: 0}, {r: 1, c: 0}, {r: 2, c: 0}, {r: 2, c: 1}], d0: R, d1: R}];
+  } else { // '+' 5칸: 축별 독립 직진 관통
+    lines = [
+      {cells: [{r: 0, c: 1}, {r: 1, c: 1}, {r: 2, c: 1}], d0: U, d1: D},
+      {cells: [{r: 1, c: 0}, {r: 1, c: 1}, {r: 1, c: 2}], d0: L, d1: R},
+    ];
+  }
+  // 무작위 회전: (r,c) → (c,-r), 방향도 같은 변환 후 좌표를 0 기준으로 정규화
+  const rot = Math.floor(Math.random() * 4);
+  for (let k = 0; k < rot; k++) {
+    for (const ln of lines) {
+      ln.cells = ln.cells.map(p => ({r: p.c, c: -p.r}));
+      ln.d0 = {dr: ln.d0.dc, dc: -ln.d0.dr};
+      ln.d1 = {dr: ln.d1.dc, dc: -ln.d1.dr};
+    }
+  }
+  const all = lines.flatMap(ln => ln.cells);
+  const minR = Math.min(...all.map(p => p.r)), minC = Math.min(...all.map(p => p.c));
+  for (const ln of lines) ln.cells = ln.cells.map(p => ({r: p.r - minR, c: p.c - minC}));
+  return {kind, lines};
+}
+
+function registerPipe(sh, r0, c0) {
+  const pipe = {kind: sh.kind, lines: [], cells: []};
+  const seen = new Set();
+  for (const ln of sh.lines) {
+    const cells = ln.cells.map(p => ({r: p.r + r0, c: p.c + c0}));
+    pipe.lines.push({cells, d0: ln.d0, d1: ln.d1});
+    for (const p of cells) {
+      const key = p.r * COLS + p.c;
+      if (seen.has(key)) continue; // '+' 의 중심 칸 중복 제거
+      seen.add(key);
+      pipe.cells.push(p);
+      terrain[p.r][p.c] = {type: 'pipe', pipe, enter: {}};
+    }
+  }
+  // 셀별 통과 규칙 사전 계산: 열린 입구에 정방향(개구의 반대 방향)으로 진입할 때만
+  // 내부 경로를 따라 반대쪽 출구 방향으로 나간다. 그 외(옆면·역방향)는 enter 미등록 = 벽.
+  for (const ln of pipe.lines) {
+    const a = ln.cells[0], b = ln.cells[ln.cells.length - 1];
+    terrain[a.r][a.c].enter[dirIdx(oppDir(ln.d0))] = {path: ln.cells, outDir: ln.d1};
+    terrain[b.r][b.c].enter[dirIdx(oppDir(ln.d1))] = {path: [...ln.cells].reverse(), outDir: ln.d0};
+  }
+  pipes.push(pipe);
+}
+
+// newGame 에서 화살표보다 먼저 실행. 배치에 실패한 지형은 그냥 건너뛴다(수는 최선 노력).
+function placeTerrain() {
+  terrain = Array.from({length: ROWS}, () => new Array(COLS).fill(null));
+  portals = [];
+  pipes = [];
+  const n = terrainCount(level);
+  const nearTerrain = (r, c) => { // 지형끼리 최소 1칸 간격 확보용
+    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+      if (inGrid(r + dr, c + dc) && terrain[r + dr][c + dc]) return true;
+    }
+    return false;
+  };
+  // 포털 칸 조건: 가장자리 1칸 이내 금지(무의미한 포털 방지),
+  // 작은 구역(해·구름 등 30칸 미만) 금지(그림 보호)
+  const portalOk = (r, c) =>
+    mask[r][c] && !nearTerrain(r, c) &&
+    Math.min(r, c, ROWS - 1 - r, COLS - 1 - c) >= 2 &&
+    (zoneCount[zones[r][c]] || 0) >= 30;
+  for (let i = 0; i < n; i++) {
+    for (let tryN = 0; tryN < 300; tryN++) {
+      const a = {r: Math.floor(Math.random() * ROWS), c: Math.floor(Math.random() * COLS)};
+      const b = {r: Math.floor(Math.random() * ROWS), c: Math.floor(Math.random() * COLS)};
+      if (!portalOk(a.r, a.c) || !portalOk(b.r, b.c)) continue;
+      if (a.r === b.r || a.c === b.c) continue;                  // 같은 행/열 일직선 쌍 → 광선 순환 위험
+      if (Math.hypot(a.r - b.r, a.c - b.c) < COLS / 3) continue; // 판 크기의 1/3 이상 떨어뜨림
+      const color = PORTAL_COLORS[portals.length % PORTAL_COLORS.length];
+      terrain[a.r][a.c] = {type: 'portal', pair: b, color};
+      terrain[b.r][b.c] = {type: 'portal', pair: a, color};
+      portals.push({a, b, color});
+      break;
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    for (let tryN = 0; tryN < 300; tryN++) {
+      const sh = makePipeShape();
+      const all = sh.lines.flatMap(ln => ln.cells);
+      const maxR = Math.max(...all.map(p => p.r)), maxC = Math.max(...all.map(p => p.c));
+      const r0 = Math.floor(Math.random() * (ROWS - maxR));
+      const c0 = Math.floor(Math.random() * (COLS - maxC));
+      if (!all.every(p => mask[p.r + r0][p.c + c0] && !nearTerrain(p.r + r0, p.c + c0))) continue;
+      registerPipe(sh, r0, c0);
+      break;
+    }
+  }
+}
+
+// 공용 광선 추적기 — 이 함수가 곧 탈출 광선의 게임 규칙이다.
+// start(포함 안 함)에서 dir 방향으로 나아가며 머리가 지나갈 칸 목록을 만든다.
+// 빈 칸: 직진. 포털 칸: 짝 칸으로 점프(jump=true 표시) 후 같은 방향으로 직진.
+// 파이프: 열린 입구에 정방향으로 닿을 때만 내부 경로를 따라 반대쪽 출구 방향으로
+// 나가고, 옆면·역방향은 벽. 포털 순환은 (칸,방향) 방문 집합으로 감지해 벽 처리.
+// grid 를 주면 다른 화살표 칸에서 조기 종료(end='hit') — 생성 핫패스 최적화.
+// 반환: {cells:[{r,c,jump?}...], end:'exit'|'wall'|'hit', endDir}
+//   벽/충돌을 일으킨 칸은 목록에 넣지 않는다. 거리 d = 목록 인덱스+1 (포털 점프도 1칸).
+function traceRay(start, dir, grid, selfId) {
+  const cells = [];
+  let r = start.r, c = start.c, d = dir;
+  let seen = null; // 지형을 만날 때만 기록 — 순환은 지형 없이는 불가능
+  while (true) {
+    r += d.dr; c += d.dc;
+    if (!inGrid(r, c)) return {cells, end: 'exit', endDir: d};
+    const t = terrain[r][c];
+    if (t) {
+      const key = (r * COLS + c) * 4 + dirIdx(d);
+      if (!seen) seen = new Set();
+      if (seen.has(key)) return {cells, end: 'wall', endDir: d}; // 광선 순환 → 막힘
+      seen.add(key);
+      if (t.type === 'portal') {
+        cells.push({r, c});
+        cells.push({r: t.pair.r, c: t.pair.c, jump: true});
+        r = t.pair.r; c = t.pair.c;
+        continue;
+      }
+      const en = t.enter[dirIdx(d)];
+      if (!en) return {cells, end: 'wall', endDir: d}; // 파이프 옆면·역방향
+      for (const p of en.path) cells.push({r: p.r, c: p.c});
+      const last = en.path[en.path.length - 1];
+      r = last.r; c = last.c; d = en.outDir;
+      continue;
+    }
+    if (grid && grid[r][c] !== -1 && grid[r][c] !== selfId) return {cells, end: 'hit', endDir: d};
+    cells.push({r, c});
+  }
+}
+
 const cv = document.getElementById('cv');
 const ctx = cv.getContext('2d');
 const stage = document.getElementById('stage');
@@ -228,7 +387,7 @@ function randomWalk(grid, start, target, straightBias) {
     const head = path[path.length - 1];
     const options = DIRS.filter(d => {
       const r = head.r + d.dr, c = head.c + d.dc;
-      return inGrid(r, c) && zones[r][c] === zone && grid[r][c] === -1 && !visited.has(r * COLS + c);
+      return inGrid(r, c) && zones[r][c] === zone && !terrain[r][c] && grid[r][c] === -1 && !visited.has(r * COLS + c);
     });
     if (options.length === 0) break;
     let d;
@@ -278,7 +437,7 @@ function generateSnakes() {
 
   const starts = [];
   for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
-    if (mask[r][c]) starts.push({r, c});
+    if (mask[r][c] && !terrain[r][c]) starts.push({r, c});
   }
   // 배치 순서는 "바깥부터" (+약간의 무작위): 화살표는 놓인 순서의 역순으로 풀리므로
   // 바깥 화살표가 먼저 놓이면 ① 빈 판에서 중앙을 관통하는 긴 탈출 경로를 얻고
@@ -333,14 +492,15 @@ function generateSnakes() {
         const snake = makeSnake(cells, id);
         const res = checkExit(snake, id, grid);
         if (!res.ok) continue;
-        // 탈출 경로 위에서 "나중에 다른 화살표가 놓일 수 있는" 빈칸 수와
-        // 판 중앙 원반(반지름 = 크기의 30%)을 통과하는 칸 수를 함께 계산
+        // traced 탈출 경로 위에서 "나중에 다른 화살표가 놓일 수 있는" 빈칸 수와
+        // 판 중앙 원반(반지름 = 크기의 30%)을 통과하는 칸 수를 함께 계산.
+        // 지형 칸은 화살표가 덮을 수 없으므로 rayEmpty 에서 제외한다.
         const h = cells[cells.length - 1];
         const rad = Math.max(2, COLS * 0.30);
         let rayEmpty = 0, centerCross = 0;
-        for (let r = h.r + snake.dir.dr, c = h.c + snake.dir.dc; inGrid(r, c); r += snake.dir.dr, c += snake.dir.dc) {
-          if (mask[r][c] && grid[r][c] === -1) rayEmpty++;
-          if (Math.hypot(r - cr, c - cc) <= rad) centerCross++;
+        for (const p of res.ray.cells) {
+          if (mask[p.r][p.c] && !terrain[p.r][p.c] && grid[p.r][p.c] === -1) rayEmpty++;
+          if (Math.hypot(p.r - cr, p.c - cc) <= rad) centerCross++;
         }
         // 금지 배치:
         //  - 탈출 경로에 덮일 수 있는 칸이 없어 영원히 못 막는 화살표 (rayEmpty === 0)
@@ -359,7 +519,7 @@ function generateSnakes() {
         const noCross = earlyQuota && centerCross === 0 ? 5000 : 0;
         const score = cov.size * 100 + centerCross * 30 + res.exitDist * 8 + cells.length + bends * 2
                     - noCross - lenPenalty - straightPenalty - (trivial ? 100000 : 0);
-        if (!best || score > best.score) best = {snake, path: cells, cov, score, trivial};
+        if (!best || score > best.score) best = {snake, path: cells, cov, score, trivial, ray: res.ray};
       }
       for (const p of path) grid[p.r][p.c] = -1;
 
@@ -371,6 +531,9 @@ function generateSnakes() {
     const id = result.length;
     for (const p of best.path) grid[p.r][p.c] = id;
     result.push(best.snake);
+    // traced 탈출 경로를 Set 으로 캐시 — onLaterRay() 가 행/열 산술 대신 소속 검사를 쓴다
+    // (지형과 머리가 고정이므로 경로 불변, 머리 연장 시에만 갱신)
+    best.snake.raySet = new Set(best.ray.cells.map(p => p.r * COLS + p.c));
 
     // 이번 배치로 탈출 경로가 덮인 화살표들은 더 이상 자유가 아님
     for (const bid of best.cov) {
@@ -381,12 +544,9 @@ function generateSnakes() {
       }
     }
     // 새 화살표의 탈출 경로(나중에 화살표가 놓일 수 있는 빈칸만) 등록
-    const head = best.snake.cells[best.snake.cells.length - 1];
     const rc = [];
-    let r = head.r + best.snake.dir.dr, c = head.c + best.snake.dir.dc;
-    while (inGrid(r, c)) {
-      if (mask[r][c] && grid[r][c] === -1) rc.push(r * COLS + c);
-      r += best.snake.dir.dr; c += best.snake.dir.dc;
+    for (const p of best.ray.cells) {
+      if (mask[p.r][p.c] && !terrain[p.r][p.c] && grid[p.r][p.c] === -1) rc.push(p.r * COLS + p.c);
     }
     rayCellsOf[id] = rc;
     freeSet.add(id);
@@ -398,14 +558,12 @@ function generateSnakes() {
   }
   if (!placedInPass) break;
   }
-  // '한눈에 보이는 공짜' = 자유이면서 머리가 가장자리 1~2칸 앞에서 바깥을 향하는 화살표
+  // '한눈에 보이는 공짜' = 자유이면서 traced 탈출 거리가 1~2칸인 화살표
   let obvious = 0;
   for (const id of freeSet) {
     const s = result[id];
     const h = s.cells[s.cells.length - 1];
-    let d = 0, r = h.r, c = h.c;
-    do { r += s.dir.dr; c += s.dir.dc; d++; } while (inGrid(r, c));
-    if (d <= 2) obvious++;
+    if (traceRay(h, s.dir).cells.length + 1 <= 2) obvious++;
   }
   return {snakes: result, occ: grid, freeCount: freeSet.size, obvious};
 }
@@ -430,46 +588,47 @@ function outwardHeadBanned(h, dir) {
   return (dir.dr * (h.r - cr) + dir.dc * (h.c - cc)) / hd > 0.3;
 }
 
-// e 가 "나중에 놓인(=먼저 탈출해야 하는) 화살표"의 탈출 직선 위 칸인지
+// e 가 "나중에 놓인(=먼저 탈출해야 하는) 화살표"의 traced 탈출 경로 위 칸인지.
+// 지형 때문에 행/열 산술 판정이 불가능해 배치 시점에 캐시한 raySet 소속 검사로 대체.
 function onLaterRay(list, id, e) {
+  const key = e.r * COLS + e.c;
   for (let t = id + 1; t < list.length; t++) {
-    const o = list[t];
-    const h = o.cells[o.cells.length - 1];
-    if (o.dir.dr === 0 ? (e.r === h.r && Math.sign(e.c - h.c) === o.dir.dc)
-                       : (e.c === h.c && Math.sign(e.r - h.r) === o.dir.dr)) return true;
+    if (list[t].raySet.has(key)) return true;
   }
   return false;
 }
 
-// 자기 몸이 탈출 직선을 막는지(j >= d 규칙). extra 는 아직 grid 에 없는 새 칸.
+// 자기 몸이 traced 탈출 경로를 막는지(j >= d 규칙). extra 는 아직 grid 에 없는 새 칸.
+// 다른 화살표 너머의 자기충돌도 검사해야 하므로 grid 조기 종료 없이 전체를 추적한다.
 function selfRayBlocked(cells, dir, grid, id, extra) {
   const head = cells[cells.length - 1];
-  let r = head.r + dir.dr, c = head.c + dir.dc, d = 1;
-  while (inGrid(r, c)) {
-    if (grid[r][c] === id || (extra && r === extra.r && c === extra.c)) {
-      const j = cells.findIndex(p => p.r === r && p.c === c);
-      if (j >= d) return true;
+  const ray = traceRay(head, dir);
+  for (let i = 0; i < ray.cells.length; i++) {
+    const p = ray.cells[i];
+    if (grid[p.r][p.c] === id || (extra && p.r === extra.r && p.c === extra.c)) {
+      const j = cells.findIndex(q => q.r === p.r && q.c === p.c);
+      if (j >= i + 1) return true;
     }
-    r += dir.dr; c += dir.dc; d++;
   }
   return false;
 }
 
-// 머리 방향 직선상의 충돌 검사.
-// 자기 몸이 앞을 막는 경우: path 인덱스 j칸은 t>j 에 비워지고 머리는 t=d 에 도착하므로 j>=d 면 막힘.
+// 머리 방향 traced 광선 위의 충돌 검사.
+// 자기 몸이 앞을 막는 경우: path 인덱스 j칸은 t>j 에 비워지고 머리는 t=d 에 도착하므로
+// j>=d 면 막힘 (d 는 포털 점프·파이프 굽이를 포함한 호 단위 거리).
+// 지형 벽('wall')에 막히면 탈출 불가. 통과 시 res.ray 를 돌려줘 호출자가 재사용한다.
 function checkExit(s, id, grid) {
   const head = s.cells[s.cells.length - 1];
-  let r = head.r + s.dir.dr, c = head.c + s.dir.dc, d = 1;
-  while (inGrid(r, c)) {
-    const o = grid[r][c];
-    if (o !== -1) {
-      if (o !== id) return {ok: false, hitDist: d};
-      const j = s.cells.findIndex(p => p.r === r && p.c === c);
-      if (j >= d) return {ok: false, hitDist: d};
+  const ray = traceRay(head, s.dir, grid, id);
+  for (let i = 0; i < ray.cells.length; i++) {
+    const p = ray.cells[i];
+    if (grid[p.r][p.c] === id) {
+      const j = s.cells.findIndex(q => q.r === p.r && q.c === p.c);
+      if (j >= i + 1) return {ok: false, hitDist: i + 1};
     }
-    r += s.dir.dr; c += s.dir.dc; d++;
   }
-  return {ok: true, exitDist: d};
+  if (ray.end !== 'exit') return {ok: false, hitDist: ray.cells.length + 1};
+  return {ok: true, exitDist: ray.cells.length + 1, ray};
 }
 
 // 빈칸 메꾸기: 기존 화살표의 "꼬리"를 인접한 빈칸으로 연장한다.
@@ -486,10 +645,9 @@ function safeExtend(list, grid, id, e) {
 function safeHeadExtend(list, grid, id, e) {
   const s = list[id];
   if (onLaterRay(list, id, e)) return false;
-  // 금지 규칙 재검사: 새 머리 기준 exitDist > 2, 바깥 절반에서 바깥 향 금지
-  let exitDist = 1, r = e.r + s.dir.dr, c = e.c + s.dir.dc;
-  while (inGrid(r, c)) { r += s.dir.dr; c += s.dir.dc; exitDist++; }
-  if (exitDist <= 2) return false;
+  // 금지 규칙 재검사: 새 머리 기준 traced exitDist > 2, 바깥 절반에서 바깥 향 금지
+  const ray = traceRay(e, s.dir);
+  if (ray.end !== 'exit' || ray.cells.length + 1 <= 2) return false;
   if (outwardHeadBanned(e, s.dir)) return false;
   // 굴곡 없는 화살표가 직선 5칸 이상이 되는 것 금지
   if (countBends(s.cells) === 0 && s.cells.length >= 4) return false;
@@ -513,7 +671,7 @@ function fillGaps(gen) {
       let extended = false;
       for (const d of DIRS) {
         const r = tail.r + d.dr, c = tail.c + d.dc;
-        if (!inGrid(r, c) || !mask[r][c] || grid[r][c] !== -1 || zones[r][c] !== zone) continue;
+        if (!inGrid(r, c) || !mask[r][c] || terrain[r][c] || grid[r][c] !== -1 || zones[r][c] !== zone) continue;
         if (!safeExtend(list, grid, id, {r, c})) continue;
         s.cells.unshift({r, c});
         grid[r][c] = id;
@@ -524,10 +682,12 @@ function fillGaps(gen) {
       // 2) 머리 방향 연장
       const head = s.cells[s.cells.length - 1];
       const e = {r: head.r + s.dir.dr, c: head.c + s.dir.dc};
-      if (inGrid(e.r, e.c) && mask[e.r][e.c] && grid[e.r][e.c] === -1 &&
+      if (inGrid(e.r, e.c) && mask[e.r][e.c] && !terrain[e.r][e.c] && grid[e.r][e.c] === -1 &&
           zones[e.r][e.c] === zones[head.r][head.c] && safeHeadExtend(list, grid, id, e)) {
         s.cells.push(e);
         grid[e.r][e.c] = id;
+        // 머리가 한 칸 전진 → traced 경로 캐시 갱신
+        s.raySet = new Set(traceRay(e, s.dir).cells.map(p => p.r * COLS + p.c));
         changed = true;
       }
     }
@@ -535,6 +695,10 @@ function fillGaps(gen) {
   if (!isSolvable(list)) { // 안전망: 문제가 생기면 전부 되돌림 (정상적으론 발생하지 않음)
     list.forEach((s, i) => { s.cells = backupCells[i]; });
     for (let r = 0; r < ROWS; r++) grid[r] = backupOcc[r];
+    for (const s of list) { // 되돌린 머리 기준으로 raySet 도 복원
+      const h = s.cells[s.cells.length - 1];
+      s.raySet = new Set(traceRay(h, s.dir).cells.map(p => p.r * COLS + p.c));
+    }
   }
 }
 
@@ -546,7 +710,7 @@ function reseed(gen) {
   const cfg = levelCfg(level);
   const empties = [];
   for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
-    if (mask[r][c] && grid[r][c] === -1) empties.push({r, c});
+    if (mask[r][c] && !terrain[r][c] && grid[r][c] === -1) empties.push({r, c});
   }
   for (let i = empties.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -568,10 +732,11 @@ function reseed(gen) {
         if (!res.ok || res.exitDist <= 2) continue;
         const h = cells[cells.length - 1];
         let rayEmpty = 0;
-        for (let r = h.r + snake.dir.dr, c = h.c + snake.dir.dc; inGrid(r, c); r += snake.dir.dr, c += snake.dir.dc) {
-          if (mask[r][c] && grid[r][c] === -1) rayEmpty++;
+        for (const p of res.ray.cells) {
+          if (mask[p.r][p.c] && !terrain[p.r][p.c] && grid[p.r][p.c] === -1) rayEmpty++;
         }
         if (rayEmpty === 0 || outwardHeadBanned(h, snake.dir)) continue;
+        snake.raySet = new Set(res.ray.cells.map(p => p.r * COLS + p.c));
         placed = snake;
         break;
       }
@@ -605,6 +770,7 @@ function newGame() {
   COLS = cfg.size;
   ROWS = cfg.size;
   ({mask, zones, zoneCount} = buildMask(cfg.shape));
+  placeTerrain(); // 지형(포털·파이프)을 화살표보다 먼저 배치
   resize();
 
   const minSnakes = Math.max(6, Math.floor(mask.flat().filter(Boolean).length / 20));
@@ -867,20 +1033,31 @@ function update(dt) {
 }
 
 function buildPts(s) {
-  // 셀 중심 좌표 (꼬리→머리) + 머리 방향 직선 연장
+  // 셀 중심 좌표 (꼬리→머리) + 머리 방향 traced 광선 연장.
+  // 파이프 굽이는 폴리라인에 자연 포함되고(기차 연출), 포털 점프는 breaks 에
+  // 도착 인덱스를 기록해 그리기에서 그 세그먼트를 건너뛴다(몸통 두 조각).
   const pts = s.cells.map(p => ({
     x: offX + (p.c + 0.5) * cell,
     y: offY + (p.r + 0.5) * cell,
   }));
+  const breaks = [];
   const h = s.cells[s.cells.length - 1];
-  const ext = ROWS + COLS + s.cells.length + 4;
-  for (let k = 1; k <= ext; k++) {
+  const ray = traceRay(h, s.dir);
+  let er = h.r, ec = h.c;
+  for (const p of ray.cells) {
+    if (p.jump) breaks.push(pts.length);
+    pts.push({x: offX + (p.c + 0.5) * cell, y: offY + (p.r + 0.5) * cell});
+    er = p.r; ec = p.c;
+  }
+  // 광선 끝(판 밖 또는 벽 방향)으로 직선 연장 — 몸 전체가 빠져나갈 여유 길이
+  const d = ray.endDir;
+  for (let k = 1; k <= s.cells.length + 6; k++) {
     pts.push({
-      x: offX + (h.c + s.dir.dc * k + 0.5) * cell,
-      y: offY + (h.r + s.dir.dr * k + 0.5) * cell,
+      x: offX + (ec + d.dc * k + 0.5) * cell,
+      y: offY + (er + d.dr * k + 0.5) * cell,
     });
   }
-  return pts;
+  return {pts, breaks};
 }
 
 function pointAt(pts, sArc) {
@@ -893,14 +1070,9 @@ function pointAt(pts, sArc) {
 }
 
 function drawSnake(s) {
-  const pts = buildPts(s);
+  const {pts, breaks} = buildPts(s);
   const len = s.cells.length - 1;
   const s0 = s.t, s1 = s.t + len;
-  const head = pointAt(pts, s1);
-  const before = pointAt(pts, Math.max(s0, s1 - 0.01));
-  let dx = head.x - before.x, dy = head.y - before.y;
-  const m = Math.hypot(dx, dy) || 1;
-  dx /= m; dy /= m;
 
   let color = s.color;
   if (s.state === 'bump') {
@@ -911,19 +1083,38 @@ function drawSnake(s) {
     color = `rgb(${Math.round(rr + (255 - rr) * p)}, ${Math.round(gg + (255 - gg) * p)}, ${Math.round(bb + (255 - bb) * p)})`;
   }
 
-  // 몸통
+  // 몸통 — 포털 점프 세그먼트(breaks[i]-1 → breaks[i])에서 끊어 조각별로 그린다
   ctx.strokeStyle = color;
   ctx.lineWidth = cell * 0.58;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
-  ctx.beginPath();
-  const start = pointAt(pts, s0);
-  ctx.moveTo(start.x, start.y);
-  for (let v = Math.ceil(s0); v < s1; v++) ctx.lineTo(pts[v].x, pts[v].y);
-  ctx.lineTo(head.x, head.y);
-  ctx.stroke();
+  const pieces = [];
+  let cur = s0;
+  for (const b of breaks) {
+    if (b <= cur) continue;
+    if (b - 1 >= s1) break;
+    if (b - 1 > cur) pieces.push([cur, b - 1]);
+    cur = Math.max(cur, b);
+  }
+  if (cur < s1) pieces.push([cur, s1]);
+  for (const [a0, a1] of pieces) {
+    if (a1 - a0 < 0.01) continue;
+    ctx.beginPath();
+    const st = pointAt(pts, a0);
+    ctx.moveTo(st.x, st.y);
+    for (let v = Math.ceil(a0); v < a1; v++) ctx.lineTo(pts[v].x, pts[v].y);
+    const en = pointAt(pts, a1);
+    ctx.lineTo(en.x, en.y);
+    ctx.stroke();
+  }
 
-  // 화살촉
+  // 화살촉 — 머리가 있는 세그먼트의 방향. 점프 세그먼트 안(포털 통과 중)이면 생략
+  const hi = Math.max(0, Math.min(Math.floor(s1), pts.length - 2));
+  if (breaks.includes(hi + 1)) return;
+  const head = pointAt(pts, s1);
+  let dx = pts[hi + 1].x - pts[hi].x, dy = pts[hi + 1].y - pts[hi].y;
+  const m = Math.hypot(dx, dy) || 1;
+  dx /= m; dy /= m;
   const tipLen = cell * 0.46, halfW = cell * 0.46, back = cell * 0.1;
   const px = -dy, py = dx;
   ctx.fillStyle = color;
@@ -933,6 +1124,57 @@ function drawSnake(s) {
   ctx.lineTo(head.x - dx * back - px * halfW, head.y - dy * back - py * halfW);
   ctx.closePath();
   ctx.fill();
+}
+
+// 파이프: 몸통(화살표 아래)과 윤곽·내부(화살표 위 반투명)를 두 번 그려
+// 화살표가 "관 속을 지나가는" 느낌을 낸다. 양 끝은 개구 방향으로 살짝 연장해 입구 표시.
+function drawPipes(top) {
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  for (const pipe of pipes) {
+    for (const ln of pipe.lines) {
+      const p0 = cellPx(ln.cells[0]), p1 = cellPx(ln.cells[ln.cells.length - 1]);
+      const path = () => {
+        ctx.beginPath();
+        ctx.moveTo(p0.x + ln.d0.dc * cell * 0.45, p0.y + ln.d0.dr * cell * 0.45);
+        for (const p of ln.cells) { const q = cellPx(p); ctx.lineTo(q.x, q.y); }
+        ctx.lineTo(p1.x + ln.d1.dc * cell * 0.45, p1.y + ln.d1.dr * cell * 0.45);
+        ctx.stroke();
+      };
+      ctx.strokeStyle = '#707aa0'; // 테두리(림)
+      ctx.lineWidth = cell * 0.92;
+      path();
+      ctx.strokeStyle = '#14161f'; // 관 내부(어두운 슬레이트)
+      ctx.globalAlpha = top ? 0.8 : 1; // 위층은 살짝 비쳐 지나가는 화살표가 어른거린다
+      ctx.lineWidth = cell * 0.64;
+      path();
+      ctx.globalAlpha = 1;
+    }
+  }
+}
+
+// 포털: 같은 쌍 = 같은 색의 이중 고리(밝은 테두리 + 어두운 구멍).
+// 화살표 위에 그려 머리가 구멍으로 빨려 들어가는 느낌을 낸다.
+function drawPortals() {
+  for (const po of portals) {
+    for (const p of [po.a, po.b]) {
+      const {x, y} = cellPx(p);
+      ctx.fillStyle = '#0b0c13';
+      ctx.beginPath();
+      ctx.arc(x, y, cell * 0.34, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = po.color;
+      ctx.lineWidth = cell * 0.13;
+      ctx.beginPath();
+      ctx.arc(x, y, cell * 0.36, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = cell * 0.05;
+      ctx.beginPath();
+      ctx.arc(x, y, cell * 0.22, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
 }
 
 function resize() {
@@ -973,6 +1215,8 @@ function frame(now) {
     ctx.fill();
   }
 
+  drawPipes(false); // 파이프 몸통 (화살표 아래)
+
   // 격자 밖으로 나가는 부분이 잘려 보이도록 클리핑
   ctx.save();
   ctx.beginPath();
@@ -981,6 +1225,8 @@ function frame(now) {
   for (const s of snakes) drawSnake(s);
   ctx.restore();
 
+  drawPipes(true); // 파이프 윤곽·내부 (화살표 위 — 관 속을 지나는 느낌)
+  drawPortals();   // 포털 고리 (머리가 구멍으로 빨려드는 느낌)
   drawFx();
   ctx.restore();
 
@@ -1000,6 +1246,11 @@ window.__game = {
   level: () => level,
   stats: () => ({moves, budget, score, totalScore, combo, stars: starsFor()}),
   setLevel: (lv) => { level = lv; newGame(); },
+  terrain: () => terrain,
+  portals: () => portals,
+  pipes: () => pipes,
+  traceRay: (r, c, dr, dc) => traceRay({r, c}, {dr, dc}),
+  canExit: (id) => checkExit(snakes[id], id, occ).ok,
   clickCell: (r, c) => {
     const rect = cv.getBoundingClientRect();
     onClick({clientX: rect.left + offX + (c + 0.5) * cell, clientY: rect.top + offY + (r + 0.5) * cell});

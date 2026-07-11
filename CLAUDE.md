@@ -42,10 +42,14 @@ docs/            설계 문서 (GENERATION_RULES.md)
 (단조성)하므로 어떤 순서로 풀어도 막다른 상태가 없다.
 
 생성 로직을 수정할 때 이 불변식을 지키는 장치들:
-- `checkExit()`의 자기충돌 규칙(`j >= d`): 자기 몸통이 탈출 직선 위에 있을 때
-  제때 비켜주는지 판정. 나선형 화살표가 걸러진다.
-- 연장(`fillGaps`)·파종(`reseed`)은 `onLaterRay()`(나중에 놓인 화살표의 탈출
-  직선 침범 금지)와 `selfRayBlocked()` 재검사를 통과해야만 허용.
+- 탈출 광선은 전부 `traceRay()` 하나가 규칙이다 — 포털 점프·파이프 통과·순환
+  가드 포함(GENERATION_RULES.md §2.5). 직선 산술을 인라인으로 다시 쓰지 말 것.
+- `checkExit()`의 자기충돌 규칙(`j >= d`): 자기 몸통이 탈출 경로 위에 있을 때
+  제때 비켜주는지 판정(d 는 traced 호 단위). 나선형 화살표가 걸러지고, 광선이
+  파이프 옆면(`'wall'`)으로 끝나 영영 못 나가는 배치도 함께 걸러진다.
+- 연장(`fillGaps`)·파종(`reseed`)은 `onLaterRay()`(나중에 놓인 화살표의 traced
+  탈출 경로 침범 금지 — `raySet` 캐시)와 `selfRayBlocked()` 재검사를 통과해야만
+  허용.
 - `isSolvable()` 탐욕 시뮬레이션이 최종 안전망.
 
 ## 아키텍처 (web/index.html 내부 구조)
@@ -56,11 +60,11 @@ docs/            설계 문서 (GENERATION_RULES.md)
    11+ 풍경화), `cellZone()`/`buildMask()`(정규화 좌표 수식 → mask/zone).
    화살표는 자기 zone 안에서만 생성·이동하고 zone 팔레트 색을 입는다 —
    하트·나무·곰돌이·풍경화 그림이 유지되는 원리.
-2. **생성 파이프라인** — `newGame()`: 후보 8개 × (`generateSnakes()` +
-   `fillGaps()`) → 밀도 창 안에서 난이도(`obvious×3 + freeCount`) 최소 후보 선택
-   → `reseed()` → `fillGaps()`. 규칙·점수식·금지 배치의 상세와 설계 근거는
-   **GENERATION_RULES.md가 단일 진실 소스** — 생성 로직을 바꾸면 반드시 함께
-   갱신한다(사용자가 기대하는 관례).
+2. **생성 파이프라인** — `newGame()`: `placeTerrain()`(포털·파이프 지형을 화살표보다
+   먼저 배치) → 후보 8개 × (`generateSnakes()` + `fillGaps()`) → 밀도 창 안에서
+   난이도(`obvious×3 + freeCount`) 최소 후보 선택 → `reseed()` → `fillGaps()`.
+   규칙·점수식·금지 배치의 상세와 설계 근거는 **GENERATION_RULES.md가 단일 진실
+   소스** — 생성 로직을 바꾸면 반드시 함께 갱신한다(사용자가 기대하는 관례).
 3. **난이도 장치** — 배치 시점 금지(trivial): 영원히 못 막는 화살표(rayEmpty 0),
    가장자리 바깥 향 머리(exitDist ≤ 2), 바깥 절반 바깥 향 머리
    (`outwardHeadBanned`, 30칸 미만 작은 zone 면제), 직선 5칸+. 배치 순서는
@@ -70,9 +74,13 @@ docs/            설계 문서 (GENERATION_RULES.md)
 4. **런타임·렌더링** — `occ[r][c]`에 화살표 인덱스 저장. 탈출 시작 시 즉시 칸을
    비우고, 애니메이션 종료 시 `snakes.splice()` 후 **occ의 인덱스를 보정**한다
    (이 대응이 깨지면 클릭이 엉뚱한 화살표를 잡는다). 그리기는 셀 중심 폴리라인
-   + 머리 방향 직선 연장 위에서 호길이 파라미터 `t` 창을 이동시키는 방식 —
+   + 머리 방향 traced 광선 연장 위에서 호길이 파라미터 `t` 창을 이동시키는 방식 —
    기차처럼 미끄러지는 탈출 애니메이션의 원리(`buildPts`/`pointAt`/`drawSnake`).
+   파이프 굽이는 폴리라인에 자연히 포함되고, 포털 점프 세그먼트는 `breaks`로
+   표시해 몸통을 두 조각으로 그린다. 지형은 파이프 몸통(화살표 아래) →
+   화살표 → 파이프 윤곽·포털 고리(화살표 위) 순서로 그린다.
 
-공용 검사 함수(`countBends`, `outwardHeadBanned`, `onLaterRay`, `selfRayBlocked`)는
-생성·연장·파종 세 경로가 공유한다. 규칙을 바꿀 때 인라인으로 복사하지 말고
-이 함수들을 수정할 것 — 과거에 세 곳 중복으로 규칙이 어긋난 적이 있어 통합했다.
+공용 검사 함수(`traceRay`, `countBends`, `outwardHeadBanned`, `onLaterRay`,
+`selfRayBlocked`)는 생성·연장·파종 세 경로가 공유한다. 규칙을 바꿀 때 인라인으로
+복사하지 말고 이 함수들을 수정할 것 — 과거에 세 곳 중복으로 규칙이 어긋난 적이
+있어 통합했다.
