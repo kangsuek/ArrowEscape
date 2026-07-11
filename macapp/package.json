@@ -1,0 +1,32 @@
+{
+  "name": "arrow-escape",
+  "productName": "Arrow Escape",
+  "version": "1.0.0",
+  "description": "Arrow Escape 퍼즐 게임의 Mac 앱 껍데기 — 게임 로직은 web/index.html(웹)이 단일 진실 소스",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --mac"
+  },
+  "build": {
+    "appId": "com.kangsuek.arrowescape",
+    "productName": "Arrow Escape",
+    "mac": {
+      "category": "public.app-category.puzzle-games",
+      "target": "dir"
+    },
+    "extraResources": [
+      {
+        "from": "../web/index.html",
+        "to": "index.html"
+      }
+    ]
+  },
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "allowScripts": {
+    "electron@38.8.6": true
+  }
+}

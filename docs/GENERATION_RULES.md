@@ -1,6 +1,6 @@
 # 화살표 생성 규칙 (Arrow Escape)
 
-`index.html`의 퍼즐 생성 로직 문서.
+`web/index.html`의 퍼즐 생성 로직 문서.
 
 생성 파이프라인: `newGame()` → 후보 8개 × (`generateSnakes()` + `fillGaps()`) →
 최적 후보 선택 → `reseed()` → `fillGaps()`.
