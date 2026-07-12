@@ -77,10 +77,10 @@ const DIRS = [{dr:-1,dc:0},{dr:1,dc:0},{dr:0,dc:-1},{dr:0,dc:1}];
 
 // ---------- 레벨 & 판 모양 ----------
 
-const SHAPES = ['square', 'heart', 'tree', 'bear', 'circle', 'diamond'];
+const SHAPES = ['square', 'heart', 'tree', 'circle', 'diamond', 'bear', 'house'];
 const SHAPE_NAMES = {
-  square: '사각형', heart: '하트', tree: '나무', bear: '곰돌이',
-  circle: '동그라미', diamond: '다이아', landscape: '풍경화',
+  square: '사각형', heart: '하트', tree: '나무', circle: '동그라미',
+  diamond: '다이아', bear: '곰돌이', house: '집',
 };
 
 // 구역(zone)별 색상 팔레트 — 화살표는 자기 구역 안에서만 만들어지고 그 구역의 색을 입는다
@@ -91,12 +91,8 @@ const PALETTES = {
   trunk:      ['#8a5a33', '#a06b3d'],
   bearBrown:  ['#a06b3d', '#8a5a33', '#c08a52', '#75482a'],
   bearMuzzle: ['#e8d5b8', '#d9c09a'],
-  sky:        ['#5b9bd9', '#6ea8dd', '#7db4e2'],
-  cloud:      ['#e8ecf5', '#cfd8ea'],
-  sun:        ['#f5c84c', '#f2a53a'],
-  mountain:   ['#7c8ba1', '#66788f', '#8f9cb3'],
-  river:      ['#3a6fc0', '#4d8fd1'],
-  field:      ['#5aa233', '#79b84a', '#8fc45f'],
+  houseRoof:  ['#d0453f', '#e0574a', '#b83a35', '#c94a44'],
+  houseWall:  ['#cfa257', '#e0b46a', '#b98a42', '#d9ad5c'],
 };
 
 let level = 1;
@@ -105,12 +101,11 @@ let zones = [];      // zones[r][c] = 구역 키(팔레트) 또는 null
 let zoneCount = {};  // 구역 키 → 칸 수 (작은 구역은 일부 금지 규칙에서 제외)
 
 function levelCfg(lv) {
-  // 첫 판부터 28×28, 레벨마다 +2 씩 커져 최대 50×50
-  // 레벨 1~10: 모양 순환, 레벨 11+: 풍경화 모드
-  const size = Math.min(50, 26 + lv * 2);
+  // 첫 판부터 12×12, 레벨마다 +2 씩 커져 최대 28×28. 모양은 7개를 계속 순환.
+  const size = Math.min(28, 10 + lv * 2);
   return {
     size,
-    shape: lv <= 10 ? SHAPES[(lv - 1) % SHAPES.length] : 'landscape',
+    shape: SHAPES[(lv - 1) % SHAPES.length],
     straightBias: Math.max(0.15, 0.5 - lv * 0.04),  // 레벨이 오를수록 더 구불구불
     maxLen: Math.min(20, 12 + lv),
   };
@@ -145,23 +140,13 @@ function cellZone(shape, u, v) {
       if (circ(0.22, 0.22, 0.155) || circ(0.78, 0.22, 0.155)) return 'bearBrown'; // 귀
       return null;
     }
-    case 'landscape': {
-      if (circ(0.80, 0.14, 0.09)) return 'sun';
-      const ell = (cx, cy, rx, ry) => {
-        const dx = (u - cx) / rx, dy = (v - cy) / ry;
-        return dx * dx + dy * dy <= 1;
-      };
-      if (ell(0.25, 0.15, 0.14, 0.055) || ell(0.52, 0.25, 0.12, 0.05)) return 'cloud';
-      const horizon = 0.62;
-      if (v < horizon) {
-        if (v >= 0.26 && Math.abs(u - 0.28) <= (v - 0.26) * 0.55) return 'mountain';
-        if (v >= 0.38 && Math.abs(u - 0.66) <= (v - 0.38) * 0.75) return 'mountain';
-        return 'sky';
-      }
-      // 지평선 아래: 굽이치는 강 + 들판
-      const cx = 0.55 + Math.sin((v - horizon) * 6) * 0.06;
-      if (Math.abs(u - cx) <= 0.045 + (v - horizon) * 0.18) return 'river';
-      return 'field';
+    case 'house': {
+      const ax = Math.abs(u - 0.5);
+      // 지붕: 위쪽 삼각형 (꼭대기 중앙 → 아래로 넓어짐), 처마가 벽보다 넓게 돌출
+      if (v >= 0.06 && v <= 0.44 && ax <= 0.46 * (v - 0.06) / 0.38) return 'houseRoof';
+      // 벽: 아래쪽 사각형
+      if (v >= 0.44 && v <= 0.94 && ax <= 0.34) return 'houseWall';
+      return null;
     }
   }
   return 'multi';
@@ -381,7 +366,7 @@ function makeOcc() {
 function randomWalk(grid, start, target, straightBias) {
   const path = [start];
   const visited = new Set([start.r * COLS + start.c]);
-  const zone = zones[start.r][start.c]; // 화살표는 자기 구역 안에서만 이동 (풍경의 경계가 살아남)
+  const zone = zones[start.r][start.c]; // 화살표는 자기 구역 안에서만 이동 (그림의 경계가 살아남)
   let prevDir = null;
   while (path.length < target) {
     const head = path[path.length - 1];
@@ -468,8 +453,8 @@ function generateSnakes() {
   // 뒤 패스에서 덮는다. 후반 패스(pass≥2)에서는 짧은 화살표 감점을 풀어 빈틈을 최대한 메꾼다
   for (let pass = 0; pass < 5; pass++) {
   let placedInPass = false;
-  // 후반 패스는 남은 빈칸이 적으니 더 끈질기게, 대형 판(40+)은 전반적으로 더 많이 시도
-  const tries = (pass >= 2 ? 45 : 30) + (COLS >= 40 ? 15 : 0);
+  // 후반 패스는 남은 빈칸이 적으니 더 끈질기게 시도
+  const tries = pass >= 2 ? 45 : 30;
   for (const start of starts) {
     if (grid[start.r][start.c] !== -1) continue;
 
@@ -656,7 +641,7 @@ function safeHeadExtend(list, grid, id, e) {
 
 function fillGaps(gen) {
   const list = gen.snakes, grid = gen.occ;
-  const cap = levelCfg(level).maxLen + (COLS >= 40 ? 10 : 4); // 대형 판은 더 길게 연장 허용
+  const cap = levelCfg(level).maxLen + 4; // 연장 길이 상한
   const backupCells = list.map(s => s.cells.map(p => ({r: p.r, c: p.c})));
   const backupOcc = grid.map(row => row.slice());
   let changed = true, guard = 0;
@@ -746,6 +731,47 @@ function reseed(gen) {
   }
 }
 
+// 이용되지 않는 지형(파이프·포털) 제거: 완성된 보드를 탐욕 풀이로 시뮬레이션하며,
+// 어떤 화살표의 탈출 광선도 통과하지 않는 파이프·포털은 순수 장식이므로 치운다.
+// 풀 수 있는 판에서는 살아남는 화살표가 파이프 옆면(벽)에 영구히 막힐 수 없고(막히면
+// 클리어 불가) 포털은 애초에 막지 않으므로, "통과 안 되는 지형"은 어떤 광선과도 무관
+// → 제거해도 광선이 하나도 안 바뀌어 안전하다. 비워진 자리는 fillGaps 로 채운다.
+function pruneUnusedTerrain(gen) {
+  if (!pipes.length && !portals.length) return;
+  const list = gen.snakes;
+  const used = new Set();
+  const sim = makeOcc();
+  list.forEach((s, i) => s.cells.forEach(p => sim[p.r][p.c] = i));
+  const alive = new Set(list.map((_, i) => i));
+  let changed = true;
+  while (changed && alive.size) {
+    changed = false;
+    for (const i of [...alive]) {
+      const res = checkExit(list[i], i, sim);
+      if (!res.ok) continue;
+      for (const p of res.ray.cells) if (terrain[p.r][p.c]) used.add(p.r * COLS + p.c);
+      list[i].cells.forEach(p => sim[p.r][p.c] = -1);
+      alive.delete(i);
+      changed = true;
+    }
+  }
+  const keepPipes = pipes.filter(pipe => pipe.cells.some(p => used.has(p.r * COLS + p.c)));
+  // 포털: 광선이 한쪽 칸에 들어가면 짝 칸까지 함께 traced 되므로 둘 중 하나만 확인해도 된다
+  const keepPortals = portals.filter(po =>
+    used.has(po.a.r * COLS + po.a.c) || used.has(po.b.r * COLS + po.b.c));
+  if (keepPipes.length === pipes.length && keepPortals.length === portals.length) return;
+  for (const pipe of pipes) if (!keepPipes.includes(pipe)) {
+    for (const p of pipe.cells) terrain[p.r][p.c] = null; // 지형 해제 → 화살표가 놓일 수 있음
+  }
+  for (const po of portals) if (!keepPortals.includes(po)) {
+    terrain[po.a.r][po.a.c] = null;
+    terrain[po.b.r][po.b.c] = null;
+  }
+  pipes = keepPipes;
+  portals = keepPortals;
+  fillGaps(gen); // 비워진 지형 자리를 화살표 연장으로 메꾼다 (자체 isSolvable 안전망 포함)
+}
+
 // 탐욕 시뮬레이션: 나갈 수 있는 화살표를 반복 제거해서 전부 사라지면 풀 수 있는 퍼즐
 function isSolvable(list) {
   const grid = makeOcc();
@@ -774,7 +800,7 @@ function newGame() {
   resize();
 
   const minSnakes = Math.max(6, Math.floor(mask.flat().filter(Boolean).length / 20));
-  const attempts = 8; // 대형 판도 생성 2~3초 허용하고 후보를 늘려 밀도 확보
+  const attempts = 8;
   // 여러 후보 중 2단계 선택: 최대 밀도의 95% 안에 드는 보드 중에서
   // 시작 시 클릭 가능한(자유) 화살표가 가장 적은 것 (isSolvable 은 안전망)
   const cands = [];
@@ -788,17 +814,16 @@ function newGame() {
   let best = null;
   if (cands.length > 0) {
     const maxFill = Math.max(...cands.map(g => g.fill));
-    // 대형 판(40+)은 밀도가 귀하므로 최대 밀도의 2% 이내만 후보로 남긴다
-    const window = COLS >= 40 ? 0.02 : 0.05;
-    const dense = cands.filter(g => g.fill >= maxFill - COLS * ROWS * window);
+    const dense = cands.filter(g => g.fill >= maxFill - COLS * ROWS * 0.05);
     // 한눈에 보이는 공짜 화살표가 적은 보드 우선, 그다음 자유 화살표 수
     const hardness = g => g.obvious * 3 + g.freeCount;
     best = dense.reduce((a, b) => (hardness(b) < hardness(a) ? b : a));
   }
   let gen = best;
   if (!gen) { gen = generateSnakes(); fillGaps(gen); }
-  reseed(gen);   // 연장 후 남은 빈 통로에 새 화살표를 한 번 더 심고
-  fillGaps(gen); // 다시 연장해 빈틈을 마저 메꾼다
+  reseed(gen);              // 연장 후 남은 빈 통로에 새 화살표를 한 번 더 심고
+  fillGaps(gen);            // 다시 연장해 빈틈을 마저 메꾸고
+  pruneUnusedTerrain(gen);  // 어떤 화살표도 통과하지 않는 파이프·포털 제거
   snakes = gen.snakes;
   occ = gen.occ;
   moves = 0;
