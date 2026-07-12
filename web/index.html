@@ -1127,51 +1127,80 @@ function drawSnake(s) {
 }
 
 // 파이프: 몸통(화살표 아래)과 윤곽·내부(화살표 위 반투명)를 두 번 그려
-// 화살표가 "관 속을 지나가는" 느낌을 낸다. 양 끝은 개구 방향으로 살짝 연장해 입구 표시.
+// 화살표가 "관 속을 지나가는" 느낌을 낸다. 양 끝은 평평하게(butt) 잘라 —
+// 둥근 캡을 쓰면 끝이 볼록 튀어나와 (·) 캡슐로 보이므로 — 타원 마개(drawMouthOval)가
+// 그 평평한 끝을 덮어 원통 관 입구가 되게 한다. 굽이(join)만 둥글게 유지.
 function drawPipes(top) {
   ctx.lineJoin = 'round';
-  ctx.lineCap = 'round';
-  for (const pipe of pipes) {
+  ctx.lineCap = 'butt';
+  // 파이프별로 모든 관(line)을 한 경로에 담는다 — '+' 교차가 단일 stroke 로 그려져
+  // 알파가 중첩되지 않고(중앙만 어두워지지 않음) 나중 관의 벽이 먼저 관의 통로를
+  // 덮지도 않아, 사방이 하나로 이어진 십자 관이 된다.
+  const pipePath = (pipe) => {
+    ctx.beginPath();
     for (const ln of pipe.lines) {
       const p0 = cellPx(ln.cells[0]), p1 = cellPx(ln.cells[ln.cells.length - 1]);
-      const path = () => {
-        ctx.beginPath();
-        ctx.moveTo(p0.x + ln.d0.dc * cell * 0.45, p0.y + ln.d0.dr * cell * 0.45);
-        for (const p of ln.cells) { const q = cellPx(p); ctx.lineTo(q.x, q.y); }
-        ctx.lineTo(p1.x + ln.d1.dc * cell * 0.45, p1.y + ln.d1.dr * cell * 0.45);
-        ctx.stroke();
-      };
-      ctx.strokeStyle = '#707aa0'; // 테두리(림)
-      ctx.lineWidth = cell * 0.92;
-      path();
-      ctx.strokeStyle = '#14161f'; // 관 내부(어두운 슬레이트)
-      ctx.globalAlpha = top ? 0.8 : 1; // 위층은 살짝 비쳐 지나가는 화살표가 어른거린다
-      ctx.lineWidth = cell * 0.64;
-      path();
-      ctx.globalAlpha = 1;
+      ctx.moveTo(p0.x + ln.d0.dc * cell * 0.4, p0.y + ln.d0.dr * cell * 0.4);
+      for (const p of ln.cells) { const q = cellPx(p); ctx.lineTo(q.x, q.y); }
+      ctx.lineTo(p1.x + ln.d1.dc * cell * 0.4, p1.y + ln.d1.dr * cell * 0.4);
     }
+  };
+  // 1) 벽(밝은 슬레이트) 전체 → 2) 통로(어두운) 전체. 순서 덕에 교차에서 벽이 통로를 덮지 않는다.
+  ctx.strokeStyle = '#707aa0';
+  ctx.lineWidth = cell * 0.92;
+  for (const pipe of pipes) { pipePath(pipe); ctx.stroke(); }
+  ctx.strokeStyle = '#14161f';
+  ctx.globalAlpha = top ? 0.8 : 1; // 위층은 살짝 비쳐 지나가는 화살표가 어른거린다
+  ctx.lineWidth = cell * 0.64;
+  for (const pipe of pipes) { pipePath(pipe); ctx.stroke(); }
+  ctx.globalAlpha = 1;
+}
+
+// 파이프 입구: 각 열린 끝에 타원 마개(밝은 테두리 링 + 어두운 구멍)를 그린다.
+// 원통 관을 옆에서 본 그림 = 직선 몸통 + 양 끝의 둥근 타원 구멍. 관을 정면으로
+// 들여다보면 보이는 동그란 구멍처럼 보여 "여기가 트인 입구"임이 한눈에 읽히고,
+// 옆면(벽)에는 타원이 없어 확실히 구분된다. 흐름 방향으로 납작하게(원근 축소).
+function drawMouthOval(cellPos, d) {
+  const m = cellPx(cellPos);
+  const out = 0.4;                                    // 튜브 평평한 끝과 같은 위치에 마개를 얹는다
+  const cx = m.x + d.dc * cell * out, cy = m.y + d.dr * cell * out;
+  const rot = Math.atan2(d.dr, d.dc);                 // 흐름 방향 각도(화면 좌표)
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, cell * 0.15, cell * 0.44, rot, 0, Math.PI * 2); // x=흐름(짧게) y=수직(벽폭에 맞춤)
+  ctx.fillStyle = '#0b0c13';                          // 어두운 둥근 구멍
+  ctx.fill();
+  ctx.strokeStyle = '#aab4d8';                        // 밝은 테두리 링
+  ctx.lineWidth = cell * 0.1;
+  ctx.stroke();
+}
+
+function drawPipeMouths() {
+  for (const pipe of pipes) for (const ln of pipe.lines) {
+    drawMouthOval(ln.cells[0], ln.d0);
+    drawMouthOval(ln.cells[ln.cells.length - 1], ln.d1);
   }
 }
 
-// 포털: 같은 쌍 = 같은 색의 이중 고리(밝은 테두리 + 어두운 구멍).
-// 화살표 위에 그려 머리가 구멍으로 빨려 들어가는 느낌을 낸다.
+// 포털: 같은 쌍 = 같은 색의 이중 동그라미(◎ — 동심원 두 개). 어두운 구멍 위에
+// 같은 색 원을 바깥·안쪽 두 개 그린다. 화살표 위에 그려 머리가 구멍으로
+// 빨려 들어가는 느낌을 낸다.
 function drawPortals() {
   for (const po of portals) {
     for (const p of [po.a, po.b]) {
       const {x, y} = cellPx(p);
+      // 어두운 구멍(배경)
       ctx.fillStyle = '#0b0c13';
       ctx.beginPath();
-      ctx.arc(x, y, cell * 0.34, 0, Math.PI * 2);
+      ctx.arc(x, y, cell * 0.42, 0, Math.PI * 2);
       ctx.fill();
+      // 이중 동그라미 — 같은 색 동심원 두 개
       ctx.strokeStyle = po.color;
-      ctx.lineWidth = cell * 0.13;
+      ctx.lineWidth = cell * 0.09;
       ctx.beginPath();
-      ctx.arc(x, y, cell * 0.36, 0, Math.PI * 2);
+      ctx.arc(x, y, cell * 0.4, 0, Math.PI * 2);   // 바깥 동그라미
       ctx.stroke();
-      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-      ctx.lineWidth = cell * 0.05;
       ctx.beginPath();
-      ctx.arc(x, y, cell * 0.22, 0, Math.PI * 2);
+      ctx.arc(x, y, cell * 0.24, 0, Math.PI * 2);  // 안쪽 동그라미
       ctx.stroke();
     }
   }
@@ -1225,8 +1254,9 @@ function frame(now) {
   for (const s of snakes) drawSnake(s);
   ctx.restore();
 
-  drawPipes(true); // 파이프 윤곽·내부 (화살표 위 — 관 속을 지나는 느낌)
-  drawPortals();   // 포털 고리 (머리가 구멍으로 빨려드는 느낌)
+  drawPipes(true);  // 파이프 윤곽·내부 (화살표 위 — 관 속을 지나는 느낌)
+  drawPipeMouths(); // 각 입구의 둥근 타원 마개 (원통 관 입구)
+  drawPortals();    // 포털 고리 (머리가 구멍으로 빨려드는 느낌)
   drawFx();
   ctx.restore();
 
