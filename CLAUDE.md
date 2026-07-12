@@ -11,12 +11,16 @@ UI·주석·문서·사용자 대화 모두 한국어.
 ```
 web/index.html   게임 본체 (단일 진실 소스) — 단일 파일, 빌드·의존성 없음
 macapp/          Mac 앱 (Electron 껍데기) — 자체 게임 로직 없음, web/ 을 그대로 로드
+androidapp/      Android 앱 (네이티브 WebView 껍데기) — assets 의 web/ 사본을 로드
 docs/            설계 문서 (GENERATION_RULES.md)
 ```
 
-**핵심 기능은 항상 `web/index.html`에만 개발한다.** Mac 앱은 얇은 껍데기로 유지 —
-개발 모드(`npm start`)는 저장소의 웹 파일을 직접 로드하므로 웹 수정이 앱 재시작만으로
-반영되고, 패키징 시에만 사본이 번들에 복사된다(`extraResources`).
+**핵심 기능은 항상 `web/index.html`에만 개발한다.** Mac·Android 앱은 얇은 껍데기 —
+자체 게임 로직이 없다. Mac 개발 모드(`npm start`)는 저장소의 웹 파일을 직접 로드하고,
+패키징 시에만 사본이 번들에 복사된다(`extraResources`). Android 는 빌드 전에
+`androidapp/scripts/sync-web.sh`로 `web/index.html`을 `app/src/main/assets/`에 복사한다
+(그 사본은 gitignore 대상 — web/ 이 진실 소스). Android 도구(SDK/Gradle)는 이 저장소를
+만든 맥에 없어 소스만 제공하며, 빌드는 Android Studio 환경에서 한다.
 
 ## 실행과 검증
 

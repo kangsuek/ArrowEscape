@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 액션바 없는 어두운 풀스크린 테마 — 게임 배경(#1b1d28)과 상태·내비게이션 바 일치 -->
+    <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/appBg</item>
+        <item name="android:statusBarColor">@color/appBg</item>
+        <item name="android:navigationBarColor">@color/appBg</item>
+    </style>
+</resources>

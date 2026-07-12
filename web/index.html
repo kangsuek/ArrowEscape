@@ -25,6 +25,12 @@
     padding: 8px 16px; font-size: 14px; cursor: pointer; font-family: inherit;
   }
   button:hover { background: #3a3f58; }
+  .icon-btn {
+    padding: 8px; display: inline-flex; align-items: center; justify-content: center;
+    color: #aab0c5;
+  }
+  .icon-btn:hover { color: #e8eaf2; }
+  .icon-btn svg { width: 20px; height: 20px; display: block; }
   #stage { flex: 1 1 auto; position: relative; }
   canvas { position: absolute; inset: 0; cursor: pointer; }
   #overlay {
@@ -47,14 +53,11 @@
   <h1>ARROW ESCAPE</h1>
   <div class="stats">
     <span>레벨 <b id="levelEl">1</b></span>
-    <span id="shapeEl" style="color:#8df0d5"></span>
-    <span>남은 화살표 <b id="remain">0</b></span>
-    <span>클릭 <b id="moves">0/0</b></span>
     <span>점수 <b id="scoreEl">0</b></span>
     <span id="comboEl" style="display:none">콤보 <b id="comboX">×2</b></span>
   </div>
   <div class="btns">
-    <button id="muteBtn" title="소리 켜기/끄기">🔊</button>
+    <button id="muteBtn" class="icon-btn" title="소리 켜기/끄기" aria-label="소리 켜기/끄기"></button>
     <button id="newBtn">새 퍼즐</button>
   </div>
 </header>
@@ -78,10 +81,6 @@ const DIRS = [{dr:-1,dc:0},{dr:1,dc:0},{dr:0,dc:-1},{dr:0,dc:1}];
 // ---------- 레벨 & 판 모양 ----------
 
 const SHAPES = ['square', 'heart', 'tree', 'circle', 'diamond', 'bear', 'house'];
-const SHAPE_NAMES = {
-  square: '사각형', heart: '하트', tree: '나무', circle: '동그라미',
-  diamond: '다이아', bear: '곰돌이', house: '집',
-};
 
 // 구역(zone)별 색상 팔레트 — 화살표는 자기 구역 안에서만 만들어지고 그 구역의 색을 입는다
 const PALETTES = {
@@ -326,10 +325,7 @@ function traceRay(start, dir, grid, selfId) {
 const cv = document.getElementById('cv');
 const ctx = cv.getContext('2d');
 const stage = document.getElementById('stage');
-const remainEl = document.getElementById('remain');
-const movesEl = document.getElementById('moves');
 const levelEl = document.getElementById('levelEl');
-const shapeEl = document.getElementById('shapeEl');
 const scoreEl = document.getElementById('scoreEl');
 const comboEl = document.getElementById('comboEl');
 const comboX = document.getElementById('comboX');
@@ -846,14 +842,10 @@ function nextLevel() {
 }
 
 function updateHud() {
-  remainEl.textContent = remaining.toLocaleString();
-  movesEl.textContent = `${moves.toLocaleString()}/${budget.toLocaleString()}`;
-  movesEl.style.color = moves > budget ? '#e0447a' : '';
+  levelEl.textContent = level.toLocaleString();
   scoreEl.textContent = score.toLocaleString();
   comboEl.style.display = combo >= 2 ? '' : 'none';
   comboX.textContent = `×${Math.min(combo, 5)}`;
-  levelEl.textContent = level.toLocaleString();
-  shapeEl.textContent = `${SHAPE_NAMES[levelCfg(level).shape]} · ${COLS}×${ROWS}`;
 }
 
 // ---------- 사운드 (WebAudio — 파일 없이 코드로 합성) ----------
@@ -1018,7 +1010,11 @@ document.getElementById('newBtn').addEventListener('click', newGame);
 document.getElementById('againBtn').addEventListener('click', nextLevel);
 
 const muteBtn = document.getElementById('muteBtn');
-function renderMuteBtn() { muteBtn.textContent = muted ? '🔇' : '🔊'; }
+// 모던 스피커 아이콘 (인라인 SVG, 이모지보다 플랫폼 간 일관됨). currentColor 로 색 상속.
+const SPK_BODY = '<path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor" stroke="none"/>';
+const ICON_ON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${SPK_BODY}<path d="M16 8.8a4.5 4.5 0 0 1 0 6.4"/><path d="M18.6 6.2a8 8 0 0 1 0 11.6"/></svg>`;
+const ICON_OFF = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${SPK_BODY}<line x1="16" y1="9.5" x2="21" y2="14.5"/><line x1="21" y1="9.5" x2="16" y2="14.5"/></svg>`;
+function renderMuteBtn() { muteBtn.innerHTML = muted ? ICON_OFF : ICON_ON; }
 muteBtn.addEventListener('click', () => {
   muted = !muted;
   localStorage.setItem('ae_muted', muted ? '1' : '0');

@@ -1,0 +1,13 @@
+# Gradle / Android 빌드 산출물
+.gradle/
+build/
+app/build/
+local.properties
+*.apk
+*.aab
+.idea/
+.DS_Store
+
+# assets 의 index.html 은 web/ 에서 복사되는 사본이므로 커밋하지 않는다
+# (sync-web.sh 로 생성; web/index.html 이 단일 진실 소스)
+app/src/main/assets/index.html

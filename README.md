@@ -5,12 +5,13 @@
 ## 디렉토리 구조
 
 ```
-web/       게임 본체 (단일 진실 소스) — index.html 하나로 완결
-macapp/    Mac 앱 (Electron 껍데기) — web/index.html 을 그대로 로드
-docs/      설계 문서 (화살표 생성 규칙 등)
+web/        게임 본체 (단일 진실 소스) — index.html 하나로 완결
+macapp/     Mac 앱 (Electron 껍데기) — web/index.html 을 그대로 로드
+androidapp/ Android 앱 (WebView 껍데기) — web/index.html 을 그대로 로드
+docs/       설계 문서 (화살표 생성 규칙 등)
 ```
 
-핵심 기능은 항상 `web/`에 개발한다. Mac 앱은 자체 게임 로직 없이 웹을 감싸기만 한다.
+핵심 기능은 항상 `web/`에 개발한다. Mac·Android 앱은 자체 게임 로직 없이 웹을 감싸기만 한다.
 
 ## 실행
 
@@ -32,6 +33,15 @@ macapp/scripts/build-dmg.sh   # → macapp/dist/Arrow Escape-<버전>.dmg
 ```
 
 서명되지 않은 앱이므로 다른 맥에서는 첫 실행 시 우클릭 → 열기.
+
+**Android 앱** (Android Studio 또는 SDK+JDK 17 필요):
+
+```bash
+androidapp/scripts/sync-web.sh   # web/index.html → assets 복사 (웹 수정 후 매번)
+# 이후 Android Studio 에서 androidapp/ 열고 실행, 또는 cd androidapp && ./gradlew installDebug
+```
+
+자세한 내용은 [androidapp/README.md](androidapp/README.md).
 
 **앱 아이콘**: 디자인 원본은 `macapp/scripts/icon-design.html`(캔버스), 이를 1024px
 PNG 로 추출한 것이 `macapp/build/icon.png`. 수정 후 `macapp/scripts/make-icons.sh`를
