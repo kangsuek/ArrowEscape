@@ -50,6 +50,17 @@
   #overlay button { background: #8df0d5; color: #1b1d28; font-weight: 700; padding: 10px 24px; }
   .btns { display: flex; gap: 8px; }
   #comboEl b { color: #f5c84c; }
+
+  /* 좁은 화면(폰): 헤더를 2줄로 — 1줄 [제목 … 버튼], 2줄 [스탯 가운데].
+     내부 줄바꿈은 막고(nowrap) 폰트·여백을 줄여 깔끔하게 맞춘다. */
+  @media (max-width: 600px) {
+    header { flex-wrap: wrap; padding: 10px 14px; }
+    header h1 { font-size: 16px; white-space: nowrap; }
+    .btns { margin-left: auto; }
+    button { padding: 7px 12px; font-size: 13px; white-space: nowrap; }
+    .icon-btn { padding: 7px; }
+    .stats { order: 3; flex-basis: 100%; justify-content: center; margin-top: 8px; gap: 22px; }
+  }
 </style>
 </head>
 <body>

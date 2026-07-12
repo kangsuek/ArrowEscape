@@ -1,9 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <!-- 액션바 없는 어두운 풀스크린 테마 — 게임 배경(#1b1d28)과 상태·내비게이션 바 일치 -->
     <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/appBg</item>
         <item name="android:statusBarColor">@color/appBg</item>
         <item name="android:navigationBarColor">@color/appBg</item>
+        <!-- 콜드 스타트 스플래시(Android 12+)를 게임 배경색으로 — 기본 밝은 스플래시 제거.
+             구버전(<31)은 windowBackground 가 같은 역할. 아이콘은 런처 아이콘 사용. -->
+        <item name="android:windowSplashScreenBackground" tools:targetApi="31">@color/appBg</item>
+        <!-- 스플래시 아이콘을 런처 아이콘으로 명시 지정 + 아이콘 원 배경도 게임 배경색으로
+             — 레거시 아이콘에 씌워지는 기본 흰 원을 없애 다크 배경과 어우러지게 한다. -->
+        <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="31">@mipmap/ic_launcher</item>
+        <item name="android:windowSplashScreenIconBackgroundColor" tools:targetApi="31">@color/appBg</item>
     </style>
 </resources>
