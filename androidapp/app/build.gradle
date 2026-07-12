@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace 'com.kangsuek.arrowescape'
-    compileSdk 34
+    compileSdk 36            // 이 개발 머신에 설치된 SDK 플랫폼(android-36)에 맞춤
 
     defaultConfig {
         applicationId "com.kangsuek.arrowescape"
         minSdk 24            // Android 7.0 — WebView·Canvas·WebAudio 충분히 지원
-        targetSdk 34
+        targetSdk 36
         versionCode 1
         versionName "1.0.0"
     }
