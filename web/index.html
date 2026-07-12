@@ -22,8 +22,10 @@
     padding: 12px 20px; flex: 0 0 auto;
   }
   header h1 { font-size: 18px; font-weight: 700; letter-spacing: 0.5px; }
-  .stats { display: flex; gap: 18px; font-size: 14px; color: #aab0c5; }
-  .stats b { color: #8df0d5; font-variant-numeric: tabular-nums; }
+  .stats { display: flex; gap: 20px; font-size: 13px; color: #aab0c5; align-items: baseline; }
+  .stats b { color: #8df0d5; font-variant-numeric: tabular-nums; font-size: 22px; font-weight: 800; margin-left: 3px; }
+  .stats b.low { color: #e0447a; }        /* 타임어택 시간 부족 경고 */
+  .icon-btn.active { color: #8df0d5; background: #3a3f58; }  /* 타임어택 켜짐 */
   button {
     background: #2e3245; color: #e8eaf2; border: none; border-radius: 8px;
     padding: 8px 16px; font-size: 14px; cursor: pointer; font-family: inherit;
@@ -69,9 +71,11 @@
   <div class="stats">
     <span>레벨 <b id="levelEl">1</b></span>
     <span>점수 <b id="scoreEl">0</b></span>
+    <span id="timeEl" style="display:none">시간 <b id="timeVal">1:00</b></span>
     <span id="comboEl" style="display:none">콤보 <b id="comboX">×2</b></span>
   </div>
   <div class="btns">
+    <button id="modeBtn" class="icon-btn" title="타임어택 모드 켜기/끄기" aria-label="타임어택 모드"></button>
     <button id="muteBtn" class="icon-btn" title="소리 켜기/끄기" aria-label="소리 켜기/끄기"></button>
     <button id="newBtn">새 퍼즐</button>
   </div>
@@ -344,9 +348,13 @@ const levelEl = document.getElementById('levelEl');
 const scoreEl = document.getElementById('scoreEl');
 const comboEl = document.getElementById('comboEl');
 const comboX = document.getElementById('comboX');
+const timeEl = document.getElementById('timeEl');
+const timeVal = document.getElementById('timeVal');
 const starsEl = document.getElementById('starsEl');
 const overlay = document.getElementById('overlay');
+const overlayMsg = document.querySelector('#overlay .msg');
 const clearSub = document.getElementById('clearSub');
+const againBtn = document.getElementById('againBtn');
 
 let snakes = [];      // { cells:[{r,c}...tail→head], dir:{dr,dc}, color, state, t, ... }
 let occ = [];         // occ[r][c] = snake index or -1
@@ -365,6 +373,31 @@ let particles = [];   // 탈출 파티클 {x,y,vx,vy,life,color}
 let floats = [];      // 떠오르는 점수 텍스트 {x,y,text,life,color}
 let shakeAmp = 0;     // 충돌 시 화면 흔들림 (px)
 let slowmoT = 0;      // 마지막 화살표 슬로모션 남은 시간 (초)
+
+// ---------- 타임어택 (선택 모드) ----------
+let timeAttack = localStorage.getItem('ae_timeattack') === '1';
+let timeLeft = 0;     // 남은 시간(초)
+let gameOver = false; // 타임오버 상태
+let lastShownSec = -1;
+const TA_INIT = 60;   // 시작 시간
+const TA_BUMP = 3;    // 충돌 시 차감(초)
+const taBonus = () => Math.ceil(startSnakes * 0.9); // 레벨 클리어 보너스(화살표 수 비례)
+
+// ---------- 기록(최고 점수·레벨) ----------
+let bestScore = parseInt(localStorage.getItem('ae_best_score') || '0', 10);     // 일반 모드 최고 누적 점수
+let bestTaLevel = parseInt(localStorage.getItem('ae_best_ta_level') || '0', 10); // 타임어택 최고 도달 레벨
+
+// 진동(햅틱) — 안드로이드 WebView 지원, 데스크톱은 무시(무해). 짧게만.
+function vibrate(pattern) {
+  if (navigator.vibrate) { try { navigator.vibrate(pattern); } catch {} }
+}
+
+// 진행 저장(일반 모드만): 현재 레벨·누적 점수 — 이어하기용. 타임어택 런은 저장 안 함.
+function saveProgress() {
+  if (timeAttack) return;
+  localStorage.setItem('ae_level', String(level));
+  localStorage.setItem('ae_total', String(totalScore));
+}
 
 // ---------- 퍼즐 생성 ----------
 
@@ -848,6 +881,7 @@ function newGame() {
   shakeAmp = 0;
   slowmoT = 0;
   overlay.classList.remove('show');
+  saveProgress();  // 이 레벨을 이어하기 지점으로 저장(일반 모드)
   updateHud();
 }
 
@@ -856,11 +890,26 @@ function nextLevel() {
   newGame();
 }
 
+function fmtTime(sec) {
+  const s = Math.max(0, Math.ceil(sec));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+function updateTimer() {
+  const sec = Math.ceil(timeLeft);
+  if (sec === lastShownSec) return;
+  lastShownSec = sec;
+  timeVal.textContent = fmtTime(timeLeft);
+  timeVal.classList.toggle('low', timeLeft <= 10);
+}
+
 function updateHud() {
   levelEl.textContent = level.toLocaleString();
   scoreEl.textContent = score.toLocaleString();
   comboEl.style.display = combo >= 2 ? '' : 'none';
   comboX.textContent = `×${Math.min(combo, 5)}`;
+  timeEl.style.display = timeAttack ? '' : 'none';
+  if (timeAttack) { lastShownSec = -1; updateTimer(); }
 }
 
 // ---------- 사운드 (WebAudio — 파일 없이 코드로 합성) ----------
@@ -971,6 +1020,7 @@ function starsFor() {
 // ---------- 입력 ----------
 
 function onClick(e) {
+  if (gameOver) return;
   const rect = cv.getBoundingClientRect();
   const x = e.clientX - rect.left, y = e.clientY - rect.top;
   const c = Math.floor((x - offX) / cell), r = Math.floor((y - offY) / cell);
@@ -998,20 +1048,43 @@ function onClick(e) {
     if (remaining === 0) {
       slowmoT = 0.9; // 마지막 화살표는 슬로모션으로
       totalScore += score;
-      const stars = starsFor();
-      setTimeout(() => {
+      vibrate([0, 35, 40, 70]); // 클리어 햅틱
+      if (timeAttack) {
+        // 타임어택: 클리어 보너스 시간 + 자동으로 다음 레벨(오버레이 없이 계속 달린다)
+        const bonus = taBonus();
+        timeLeft += bonus;
+        floats.push({x: stage.clientWidth / 2, y: 90, text: `+${bonus}s`, life: 1.4, color: '#8df0d5'});
         playClear();
-        starsEl.innerHTML = '★'.repeat(stars) + `<span class="off">${'★'.repeat(3 - stars)}</span>`;
-        clearSub.innerHTML =
-          `레벨 ${level.toLocaleString()} 클리어 — 클릭 ${moves.toLocaleString()}/${budget.toLocaleString()}<br>` +
-          `점수 <b style="color:#8df0d5">${score.toLocaleString()}</b> · 누적 ${totalScore.toLocaleString()}`;
-        overlay.classList.add('show');
-      }, 1200);
+        setTimeout(() => { level++; newGame(); }, 1400);
+      } else {
+        let newBest = false;
+        if (totalScore > bestScore) {
+          bestScore = totalScore;
+          localStorage.setItem('ae_best_score', String(bestScore));
+          newBest = true;
+        }
+        const stars = starsFor();
+        setTimeout(() => {
+          playClear();
+          overlayMsg.textContent = 'CLEAR!';
+          overlayMsg.style.color = '#8df0d5';
+          againBtn.textContent = '다음 레벨 ▶';
+          starsEl.innerHTML = '★'.repeat(stars) + `<span class="off">${'★'.repeat(3 - stars)}</span>`;
+          clearSub.innerHTML =
+            `레벨 ${level.toLocaleString()} 클리어 — 클릭 ${moves.toLocaleString()}/${budget.toLocaleString()}<br>` +
+            `점수 <b style="color:#8df0d5">${score.toLocaleString()}</b> · 누적 ${totalScore.toLocaleString()}<br>` +
+            (newBest ? `<b style="color:#f5c84c">🏆 최고 기록!</b>`
+                     : `최고 ${bestScore.toLocaleString()}`);
+          overlay.classList.add('show');
+        }, 1200);
+      }
     }
   } else {
     combo = 0;
     shakeAmp = 5;
     playBump();
+    vibrate(25); // 충돌 햅틱
+    if (timeAttack) timeLeft = Math.max(0.01, timeLeft - TA_BUMP); // 오클릭 시간 차감
     s.state = 'bump';
     s.t = 0;
     s.bumpPhase = 0;
@@ -1022,7 +1095,72 @@ function onClick(e) {
 
 cv.addEventListener('pointerdown', (e) => { ensureAudio(); onClick(e); });
 document.getElementById('newBtn').addEventListener('click', newGame);
-document.getElementById('againBtn').addEventListener('click', nextLevel);
+// 오버레이 버튼: 타임오버면 새 런 시작, 아니면 다음 레벨
+againBtn.addEventListener('click', () => { if (gameOver) startRun(); else nextLevel(); });
+
+// 새 런(레벨 1부터, 타임어택이면 시간 초기화)
+function startRun() {
+  level = 1;
+  totalScore = 0;
+  gameOver = false;
+  timeLeft = timeAttack ? TA_INIT : 0;
+  overlay.classList.remove('show');
+  newGame();
+}
+
+// 시작·모드전환 진입점: 타임어택은 항상 새 런, 일반 모드는 저장된 진행 이어하기
+function boot() {
+  gameOver = false;
+  overlay.classList.remove('show');
+  if (timeAttack) {
+    startRun();
+  } else {
+    level = Math.max(1, parseInt(localStorage.getItem('ae_level') || '1', 10));
+    totalScore = parseInt(localStorage.getItem('ae_total') || '0', 10);
+    timeLeft = 0;
+    newGame();
+  }
+}
+
+// 타임오버 오버레이
+function showGameOver() {
+  if (gameOver) return; // 중복 호출 방지
+  gameOver = true;
+  vibrate(140);
+  playBump();
+  let newBest = false;
+  if (level > bestTaLevel) {
+    bestTaLevel = level;
+    localStorage.setItem('ae_best_ta_level', String(bestTaLevel));
+    newBest = true;
+  }
+  overlayMsg.textContent = 'TIME OVER';
+  overlayMsg.style.color = '#e0447a';
+  starsEl.innerHTML = '';
+  clearSub.innerHTML =
+    `레벨 ${level.toLocaleString()} 도달 · 점수 <b style="color:#8df0d5">${totalScore.toLocaleString()}</b><br>` +
+    (newBest ? `<b style="color:#f5c84c">🏆 최고 레벨!</b>`
+             : `최고 레벨 ${bestTaLevel.toLocaleString()}`);
+  againBtn.textContent = '다시 시작';
+  overlay.classList.add('show');
+}
+
+// 타임어택 모드 토글 버튼 (스톱워치 아이콘)
+const modeBtn = document.getElementById('modeBtn');
+const ICON_CLOCK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2.5h6"/><circle cx="12" cy="13" r="8"/><path d="M12 9.5V13l2.4 1.7"/></svg>`;
+function renderModeBtn() {
+  modeBtn.innerHTML = ICON_CLOCK;
+  modeBtn.classList.toggle('active', timeAttack);
+  modeBtn.title = timeAttack ? '타임어택 모드 (켜짐)' : '타임어택 모드 (꺼짐)';
+}
+modeBtn.addEventListener('click', () => {
+  timeAttack = !timeAttack;
+  localStorage.setItem('ae_timeattack', timeAttack ? '1' : '0');
+  renderModeBtn();
+  // 타임어택 켜면 새 런, 끄면 저장된 일반 진행 이어하기
+  boot();
+});
+renderModeBtn();
 
 const muteBtn = document.getElementById('muteBtn');
 // 모던 스피커 아이콘 (인라인 SVG, 이모지보다 플랫폼 간 일관됨). currentColor 로 색 상속.
@@ -1264,6 +1402,13 @@ function frame(now) {
   update(dt);
   updateFx(raw); // 파티클·텍스트·흔들림은 실제 시간으로
 
+  // 타임어택 카운트다운 (플레이 중일 때만; 실제 시간 기준)
+  if (timeAttack && !gameOver && remaining > 0) {
+    timeLeft -= raw;
+    updateTimer();
+    if (timeLeft <= 0) { timeLeft = 0; updateTimer(); showGameOver(); }
+  }
+
   const w = stage.clientWidth, h = stage.clientHeight;
   ctx.clearRect(0, 0, w, h);
   ctx.save();
@@ -1301,7 +1446,7 @@ function frame(now) {
 
 window.addEventListener('resize', resize);
 resize();
-newGame();
+boot();  // 일반 모드면 저장된 레벨 이어하기, 타임어택이면 새 런
 requestAnimationFrame(frame);
 
 // 테스트용 훅
@@ -1310,8 +1455,10 @@ window.__game = {
   occ: () => occ,
   size: () => ({cols: COLS, rows: ROWS}),
   level: () => level,
-  stats: () => ({moves, budget, score, totalScore, combo, stars: starsFor()}),
+  stats: () => ({moves, budget, score, totalScore, combo, stars: starsFor(), timeAttack, timeLeft, gameOver, bestScore, bestTaLevel}),
   setLevel: (lv) => { level = lv; newGame(); },
+  setTimeAttack: (on) => { timeAttack = on; renderModeBtn(); startRun(); },
+  setTimeLeft: (s) => { timeLeft = s; },
   terrain: () => terrain,
   portals: () => portals,
   pipes: () => pipes,
