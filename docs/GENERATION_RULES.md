@@ -269,7 +269,7 @@ score = cov × 100          # 지금 자유로운 화살표의 탈출 경로를 
 | `size()` | `{cols, rows}` |
 | `level()` | 현재 레벨 |
 | `setLevel(lv)` | 레벨 변경 + 새 퍼즐 생성 |
-| `stats()` | `{moves, budget, score, totalScore, combo, stars, timeAttack, timeLeft, gameOver, bestScore, bestTaLevel}` |
+| `stats()` | `{moves, budget, score, combo, stars, timeAttack, timeLeft, gameOver, bestScore, bestLevel, bestTaLevel, bestTaScore}` (`score`는 레벨이 올라가도 초기화되지 않는 누적 점수) |
 | `setTimeAttack(on)` | 타임어택 모드 켜기/끄기 + 새 런 시작 |
 | `setTimeLeft(s)` | 남은 시간(초) 강제 설정 (타임오버 테스트용) |
 | `clickCell(r, c)` | 해당 칸 클릭 시뮬레이션 |

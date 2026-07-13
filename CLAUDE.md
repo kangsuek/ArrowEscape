@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Arrow Escape — HTML5 캔버스 퍼즐 게임. 격자에 얽힌 뱀 모양 화살표를 클릭하면
 머리 방향 직선으로 탈출하고, 막히면 튕겨 돌아온다. 모든 화살표를 내보내면 클리어.
-UI·주석·문서·사용자 대화 모두 한국어.
+게임 내 UI 텍스트(라벨·버튼·오버레이 문구)는 영어, 주석·문서·사용자 대화는 한국어.
 
 ```
 web/index.html   게임 본체 (단일 진실 소스) — 단일 파일, 빌드·의존성 없음
@@ -87,12 +87,19 @@ docs/            설계 문서 (GENERATION_RULES.md)
    화살표 → 파이프 윤곽·포털 고리(화살표 위) 순서로 그린다.
 5. **모드·기록·저장** — 진입점은 `boot()`(일반 모드면 저장된 레벨 이어하기,
    타임어택이면 `startRun()`으로 새 런). 타임어택은 `frame()`에서 실제 시간으로
-   카운트다운하고 클리어 시 보너스 시간·자동 다음 레벨, 오클릭 시 시간 차감,
-   0이 되면 `showGameOver()`. 영속 상태는 전부 `localStorage`의 `ae_*` 키
-   (`ae_level`·`ae_total` 이어하기, `ae_best_score`·`ae_best_ta_level` 기록,
-   `ae_timeattack`·`ae_muted` 설정) — 읽기는 `lsInt()`로 NaN 방어. 햅틱은
-   `vibrate()`(안드로이드만 유효), 사운드는 WebAudio 합성(`ensureAudio()`가
-   suspended 컨텍스트를 첫 클릭에 resume).
+   카운트다운하고, 화살표 1개 탈출마다 `TA_ARROW_BONUS`가 즉시 붙고 레벨 클리어 시
+   `taBonus()`가 추가로 붙는다(둘은 누적, 하나가 다른 하나를 대체하지 않음). 오클릭
+   시 시간 차감, 0이 되면 `showGameOver()`. `score`는 레벨이 올라가도 초기화되지
+   않는 런 전체 누적값이다(레벨 클리어마다 리셋하던 과거 방식에서 변경). 영속
+   상태는 전부 `localStorage`의 `ae_*` 키 — 이어하기: `ae_level`·`ae_total`(=`score`),
+   기록: `ae_best_score`·`ae_best_level`(일반 모드, 쌍으로 갱신)과
+   `ae_best_ta_level`·`ae_best_ta_score`(타임어택, 쌍으로 갱신), 설정:
+   `ae_timeattack`·`ae_muted` — 읽기는 `lsInt()`로 NaN 방어. 햅틱은 `vibrate()`
+   (안드로이드만 유효), 사운드는 WebAudio 합성(`ensureAudio()`가 suspended
+   컨텍스트를 첫 클릭에 resume). 타임어택 잔여 10초 이하부터는 `bgmTick()`이
+   120bpm 고정 템포의 저음 2연타 BGM을 재생하며 `maybeStartBgm()`/`stopBgm()`으로
+   구간 진입·이탈(보너스로 다시 10초 초과, 타임오버, 모드 전환)을 관리한다 —
+   새 사운드 연출을 추가할 때도 이 시작/정지 훅 패턴을 따를 것.
 
 공용 검사 함수(`traceRay`, `countBends`, `outwardHeadBanned`, `onLaterRay`,
 `selfRayBlocked`)는 생성·연장·파종 세 경로가 공유한다. 규칙을 바꿀 때 인라인으로
