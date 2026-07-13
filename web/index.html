@@ -978,6 +978,18 @@ function playBump() { beep(150, 0.12, 'sawtooth', 0.14, 65); }
 function playClear() {
   [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => beep(f, 0.2, 'triangle', 0.12), i * 90));
 }
+// 게임오버(타임오버) 엔딩 징글 — 스퀘어웨이브의 통통 튀는 오리지널 팡파레
+function playGameOverJingle() {
+  const notes = [
+    {f: 392, t: 0,   d: 0.11}, // G4
+    {f: 494, t: 120, d: 0.11}, // B4
+    {f: 587, t: 240, d: 0.11}, // D5
+    {f: 784, t: 360, d: 0.22}, // G5
+    {f: 587, t: 620, d: 0.11}, // D5
+    {f: 784, t: 740, d: 0.34}, // G5 (마무리)
+  ];
+  notes.forEach(n => setTimeout(() => beep(n.f, n.d, 'square', 0.16), n.t));
+}
 
 // 타임어택 긴장감 BGM: 10초 이하로 남으면 심장박동(lub-dub) 같은 저음 2연타를
 // 실제 긴장 상태의 심박수(약 120bpm)에 맞춰 일정한 박자로 반복 재생.
@@ -1184,6 +1196,7 @@ function showGameOver() {
   stopBgm();
   vibrate(140);
   playBump();
+  setTimeout(playGameOverJingle, 200);
   let newBest = false;
   if (level > bestTaLevel) {
     bestTaLevel = level;
