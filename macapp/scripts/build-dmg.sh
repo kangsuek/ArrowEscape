@@ -8,6 +8,17 @@ set -euo pipefail
 # 스크립트 위치 기준으로 macapp 디렉토리로 이동
 cd "$(dirname "$0")/.."
 
+# node/npm이 없으면 Homebrew로 설치
+if ! command -v npm >/dev/null 2>&1; then
+  if ! command -v brew >/dev/null 2>&1; then
+    echo "✗ npm이 없고 Homebrew도 없어 자동 설치할 수 없습니다." >&2
+    echo "  https://brew.sh 안내에 따라 Homebrew를 먼저 설치해주세요." >&2
+    exit 1
+  fi
+  echo "▶ node.js가 없어 Homebrew로 설치 중..."
+  brew install node
+fi
+
 # 의존성이 없으면 설치
 if [ ! -d node_modules ]; then
   echo "▶ 의존성 설치 중 (최초 1회)..."
