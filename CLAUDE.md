@@ -85,6 +85,14 @@ docs/            설계 문서 (GENERATION_RULES.md)
    파이프 굽이는 폴리라인에 자연히 포함되고, 포털 점프 세그먼트는 `breaks`로
    표시해 몸통을 두 조각으로 그린다. 지형은 파이프 몸통(화살표 아래) →
    화살표 → 파이프 윤곽·포털 고리(화살표 위) 순서로 그린다.
+5. **모드·기록·저장** — 진입점은 `boot()`(일반 모드면 저장된 레벨 이어하기,
+   타임어택이면 `startRun()`으로 새 런). 타임어택은 `frame()`에서 실제 시간으로
+   카운트다운하고 클리어 시 보너스 시간·자동 다음 레벨, 오클릭 시 시간 차감,
+   0이 되면 `showGameOver()`. 영속 상태는 전부 `localStorage`의 `ae_*` 키
+   (`ae_level`·`ae_total` 이어하기, `ae_best_score`·`ae_best_ta_level` 기록,
+   `ae_timeattack`·`ae_muted` 설정) — 읽기는 `lsInt()`로 NaN 방어. 햅틱은
+   `vibrate()`(안드로이드만 유효), 사운드는 WebAudio 합성(`ensureAudio()`가
+   suspended 컨텍스트를 첫 클릭에 resume).
 
 공용 검사 함수(`traceRay`, `countBends`, `outwardHeadBanned`, `onLaterRay`,
 `selfRayBlocked`)는 생성·연장·파종 세 경로가 공유한다. 규칙을 바꿀 때 인라인으로

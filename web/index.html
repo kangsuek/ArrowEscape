@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Arrow Escape</title>
+<!-- 파비콘: 인라인 SVG(외부 파일 없이 자립) — 어두운 판 배경 + 탈출하는 민트 화살표.
+     이 link 가 있으면 브라우저가 /favicon.ico 를 기본 요청하지 않아 404 도 사라진다. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231b1d28'/%3E%3Cpath d='M9 24 V15 H17' fill='none' stroke='%238df0d5' stroke-width='4.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M15 9 L25 15 L15 21 Z' fill='%238df0d5'/%3E%3C/svg%3E">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; overflow: hidden; }
@@ -384,8 +387,14 @@ const TA_BUMP = 3;    // 충돌 시 차감(초)
 const taBonus = () => Math.ceil(startSnakes * 0.9); // 레벨 클리어 보너스(화살표 수 비례)
 
 // ---------- 기록(최고 점수·레벨) ----------
-let bestScore = parseInt(localStorage.getItem('ae_best_score') || '0', 10);     // 일반 모드 최고 누적 점수
-let bestTaLevel = parseInt(localStorage.getItem('ae_best_ta_level') || '0', 10); // 타임어택 최고 도달 레벨
+let bestScore = lsInt('ae_best_score', 0);      // 일반 모드 최고 누적 점수
+let bestTaLevel = lsInt('ae_best_ta_level', 0); // 타임어택 최고 도달 레벨
+
+// localStorage 정수 읽기 — 값이 없거나 손상돼도 기본값으로 (NaN 전파 방지)
+function lsInt(key, def) {
+  const n = parseInt(localStorage.getItem(key), 10);
+  return Number.isFinite(n) ? n : def;
+}
 
 // 진동(햅틱) — 안드로이드 WebView 지원, 데스크톱은 무시(무해). 짧게만.
 function vibrate(pattern) {
@@ -921,6 +930,8 @@ function ensureAudio() {
   if (!audioCtx) {
     try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch {}
   }
+  // 모바일·WebView 는 사용자 제스처 전엔 suspended 로 시작 — 첫 클릭에서 재개해야 소리가 난다
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
 }
 
 function beep(freq, dur, type, vol, slideTo) {
@@ -1115,8 +1126,8 @@ function boot() {
   if (timeAttack) {
     startRun();
   } else {
-    level = Math.max(1, parseInt(localStorage.getItem('ae_level') || '1', 10));
-    totalScore = parseInt(localStorage.getItem('ae_total') || '0', 10);
+    level = Math.max(1, lsInt('ae_level', 1));
+    totalScore = lsInt('ae_total', 0);
     timeLeft = 0;
     newGame();
   }

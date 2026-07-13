@@ -269,6 +269,9 @@ score = cov × 100          # 지금 자유로운 화살표의 탈출 경로를 
 | `size()` | `{cols, rows}` |
 | `level()` | 현재 레벨 |
 | `setLevel(lv)` | 레벨 변경 + 새 퍼즐 생성 |
+| `stats()` | `{moves, budget, score, totalScore, combo, stars, timeAttack, timeLeft, gameOver, bestScore, bestTaLevel}` |
+| `setTimeAttack(on)` | 타임어택 모드 켜기/끄기 + 새 런 시작 |
+| `setTimeLeft(s)` | 남은 시간(초) 강제 설정 (타임오버 테스트용) |
 | `clickCell(r, c)` | 해당 칸 클릭 시뮬레이션 |
 | `terrain()` / `portals()` / `pipes()` | 지형 그리드·포털 쌍·파이프 목록 |
 | `traceRay(r, c, dr, dc)` | 해당 칸·방향의 광선 추적 결과 (터널 경유 확인용) |
