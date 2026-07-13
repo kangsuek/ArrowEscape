@@ -49,9 +49,7 @@ class MainActivity : Activity() {
         webView.loadUrl("file:///android_asset/index.html")
     }
 
-    // 뒤로가기: 웹 히스토리가 있으면 뒤로, 없으면 앱 종료
-    @Deprecated("deprecated in API 33; 단일 화면 게임이라 단순 처리로 충분")
-    override fun onBackPressed() {
-        if (webView.canGoBack()) webView.goBack() else super.onBackPressed()
-    }
+    // 뒤로가기는 기본 동작(앱 종료)에 맡긴다: 게임은 단일 페이지라 WebView 히스토리가
+    // 쌓이지 않아 canGoBack() 이 항상 false — 별도 오버라이드가 필요 없다(API 33 에서
+    // deprecated 된 onBackPressed() 도 피한다).
 }
