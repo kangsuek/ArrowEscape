@@ -72,6 +72,10 @@
     flex: 1; min-width: 0; background: #2e3245; color: #e8eaf2; border: none;
     border-radius: 8px; padding: 8px 12px; font-size: 14px; font-family: inherit;
   }
+  #lbForm select {
+    flex: 0 0 auto; max-width: 88px; background: #2e3245; color: #e8eaf2; border: none;
+    border-radius: 8px; padding: 8px 6px; font-size: 14px; font-family: inherit;
+  }
   #lbForm button { padding: 8px 14px; font-size: 13px; white-space: nowrap; }
   #lbStatus { font-size: 13px; color: #aab0c5; text-align: center; min-height: 1.4em; }
   #lbTabs { display: none; gap: 8px; justify-content: center; margin: 6px 0 4px; }
@@ -121,6 +125,7 @@
     <div class="sub" id="clearSub"></div>
     <div id="lbBox" style="display:none">
       <div id="lbForm">
+        <select id="lbCountry"></select>
         <input id="lbName" maxlength="12" placeholder="Your Name" autocomplete="off">
         <button id="lbSubmitBtn">Submit Score</button>
       </div>
@@ -401,6 +406,7 @@ const clearSub = document.getElementById('clearSub');
 const lbBox = document.getElementById('lbBox');
 const lbForm = document.getElementById('lbForm');
 const lbTabs = document.getElementById('lbTabs');
+const lbCountry = document.getElementById('lbCountry');
 const lbName = document.getElementById('lbName');
 const lbSubmitBtn = document.getElementById('lbSubmitBtn');
 const lbStatus = document.getElementById('lbStatus');
@@ -450,10 +456,38 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+// ISO 3166-1 alpha-2 코드 → 국기 이모지 (지역 표시 기호 유니코드 변환, 이미지 자산 불필요)
+function countryFlag(code) {
+  if (!code || code.length !== 2) return '🏳️';
+  return String.fromCodePoint(...[...code.toUpperCase()].map(c => 127397 + c.charCodeAt(0)));
+}
+
+// 국가 선택 드롭다운용 목록 (IP 추론 대신 사용자가 직접 고른다 — 위치 정보 처리 없음)
+const COUNTRIES = [
+  ['','Country'],['KR','Korea, South'],['US','United States'],['JP','Japan'],['CN','China'],
+  ['GB','United Kingdom'],['DE','Germany'],['FR','France'],['CA','Canada'],['AU','Australia'],
+  ['BR','Brazil'],['IN','India'],['RU','Russia'],['ES','Spain'],['IT','Italy'],
+  ['MX','Mexico'],['ID','Indonesia'],['NL','Netherlands'],['TR','Turkey'],['VN','Vietnam'],
+  ['TH','Thailand'],['PH','Philippines'],['MY','Malaysia'],['SG','Singapore'],['TW','Taiwan'],
+  ['HK','Hong Kong'],['PL','Poland'],['SE','Sweden'],['NO','Norway'],['FI','Finland'],
+  ['DK','Denmark'],['PT','Portugal'],['AR','Argentina'],['CL','Chile'],['CO','Colombia'],
+  ['ZA','South Africa'],['EG','Egypt'],['SA','Saudi Arabia'],['AE','United Arab Emirates'],['IL','Israel'],
+  ['NZ','New Zealand'],['IE','Ireland'],['CH','Switzerland'],['AT','Austria'],['BE','Belgium'],
+  ['GR','Greece'],['CZ','Czechia'],['UA','Ukraine'],['RO','Romania'],['PK','Pakistan'],
+];
+
+// 클라이언트 측 간단 금칙어 필터 — 서버 검증은 아니라 완벽하진 않지만 최소한의 억제책.
+// 소문자·공백 제거 후 부분일치로 검사한다.
+const NAME_BLOCKLIST = ['fuck','shit','bitch','asshole','nigger','cunt','씨발','병신','좆','섹스'];
+function isNameBlocked(name) {
+  const norm = name.toLowerCase().replace(/\s/g, '');
+  return NAME_BLOCKLIST.some(w => norm.includes(w));
+}
+
 // RTDB는 (score, mode) 복합 인덱스 쿼리가 안 되므로, 전체 순위(/scores)와 별개로
 // 타임어택 기록만 그대로 복제한 /scoresTA 를 둬 두 순위를 각각 단순 쿼리로 낸다.
-async function lbSubmit(name, lv, sc, mode) {
-  const payload = {name, level: lv, score: sc, ts: Date.now(), mode};
+async function lbSubmit(name, lv, sc, mode, country) {
+  const payload = {name, level: lv, score: sc, ts: Date.now(), mode, country: country || ''};
   const res = await fetch(`${LB_DB_URL}/scores.json`, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -1304,6 +1338,10 @@ function showGameOver() {
 }
 
 // 타임오버 화면의 순위표 폼을 초기 상태로 (설정 안 됐으면 아예 숨김)
+// 국가 드롭다운은 한 번만 채워 둔다 (게임오버마다 다시 만들 필요 없음)
+lbCountry.innerHTML = COUNTRIES.map(([code, n]) =>
+  `<option value="${code}">${code ? countryFlag(code) + ' ' : ''}${escapeHtml(n)}</option>`).join('');
+
 let lbScope = 'scores';        // 지금 보고 있는 순위표 범위: 'scores'(전체) | 'scoresTA'(타임어택만)
 let lbHighlightScore = null;   // 방금 낸 내 점수 — 탭 전환 시에도 하이라이트 유지
 function resetLeaderboardForm() {
@@ -1311,7 +1349,9 @@ function resetLeaderboardForm() {
   lbBox.style.display = '';
   lbForm.style.display = '';
   lbName.value = localStorage.getItem('ae_name') || '';
+  lbCountry.value = localStorage.getItem('ae_country') || '';
   lbName.disabled = false;
+  lbCountry.disabled = false;
   lbSubmitBtn.disabled = false;
   lbStatus.textContent = '';
   lbTabs.style.display = 'none';
@@ -1337,7 +1377,7 @@ async function renderLeaderboard(highlightScore) {
     lbList.innerHTML = top.length ? top.map((e, i) => `
       <li class="${e.score === highlightScore ? 'me' : ''}">
         <span class="lb-rank">#${i + 1}</span>
-        <span class="lb-name">${escapeHtml(e.name)}</span>
+        <span class="lb-name">${e.country ? countryFlag(e.country) + ' ' : ''}${escapeHtml(e.name)}</span>
         <span class="lb-level">Lv ${e.level}</span>
         <span class="lb-score">${e.score.toLocaleString()}</span>
       </li>`).join('') : '<li>No records yet.</li>';
@@ -1349,22 +1389,28 @@ async function renderLeaderboard(highlightScore) {
 lbSubmitBtn.addEventListener('click', async () => {
   const name = lbName.value.trim().slice(0, 12);
   if (!name) { lbStatus.textContent = 'Please enter a name.'; return; }
+  if (isNameBlocked(name)) { lbStatus.textContent = 'Please choose an appropriate name.'; return; }
+  const country = lbCountry.value;
   const mode = timeAttack ? 'timeattack' : 'normal';
   lbSubmitBtn.disabled = true;
   lbName.disabled = true;
+  lbCountry.disabled = true;
   lbStatus.textContent = 'Submitting…';
   localStorage.setItem('ae_name', name);
+  localStorage.setItem('ae_country', country);
   try {
-    await lbSubmit(name, level, score, mode);
+    await lbSubmit(name, level, score, mode, country);
   } catch {
     lbStatus.textContent = 'Failed to submit. Check your connection.';
     lbSubmitBtn.disabled = false;
     lbName.disabled = false;
+    lbCountry.disabled = false;
     return;
   }
   // 제출 자체는 성공 — 이후 등수·순위표 조회는 실패해도 "제출 실패"로 보이면 안 된다
   lbForm.style.display = 'none';
   lbHighlightScore = score;
+  const flag = country ? countryFlag(country) + ' ' : '';
   try {
     const overallRank = await lbRank(score, 'scores');
     let msg = `Overall Rank <b style="color:#f5c84c">#${overallRank.toLocaleString()}</b>`;
@@ -1374,9 +1420,9 @@ lbSubmitBtn.addEventListener('click', async () => {
         msg += ` · Time Attack Rank <b style="color:#f5c84c">#${taRank.toLocaleString()}</b>`;
       } catch {}
     }
-    lbStatus.innerHTML = `${msg} — ${escapeHtml(name)}, Lv ${level}, ${score.toLocaleString()}`;
+    lbStatus.innerHTML = `${msg} — ${flag}${escapeHtml(name)}, Lv ${level}, ${score.toLocaleString()}`;
   } catch {
-    lbStatus.innerHTML = `Submitted — ${escapeHtml(name)}, Lv ${level}, ${score.toLocaleString()}`;
+    lbStatus.innerHTML = `Submitted — ${flag}${escapeHtml(name)}, Lv ${level}, ${score.toLocaleString()}`;
   }
   lbTabs.style.display = 'flex';
   setLbScope(mode === 'timeattack' ? 'scoresTA' : 'scores');
