@@ -74,6 +74,9 @@
   }
   #lbForm button { padding: 8px 14px; font-size: 13px; white-space: nowrap; }
   #lbStatus { font-size: 13px; color: #aab0c5; text-align: center; min-height: 1.4em; }
+  #lbTabs { display: none; gap: 8px; justify-content: center; margin: 6px 0 4px; }
+  #lbTabs .lb-tab { padding: 5px 12px; font-size: 12px; border-radius: 999px; background: #2e3245; color: #aab0c5; }
+  #lbTabs .lb-tab.active { background: #8df0d5; color: #1b1d28; font-weight: 700; }
   #lbList { list-style: none; font-size: 13px; }
   #lbList li { display: flex; gap: 8px; padding: 4px 8px; border-radius: 6px; color: #aab0c5; }
   #lbList li.me { background: #2e3245; color: #8df0d5; font-weight: 700; }
@@ -122,6 +125,10 @@
         <button id="lbSubmitBtn">Submit Score</button>
       </div>
       <div id="lbStatus"></div>
+      <div id="lbTabs" style="display:none">
+        <button class="lb-tab" data-scope="scores">All</button>
+        <button class="lb-tab" data-scope="scoresTA">Time Attack</button>
+      </div>
       <ol id="lbList"></ol>
     </div>
     <button id="againBtn">Next Level ▶</button>
@@ -393,6 +400,7 @@ const overlayMsg = document.querySelector('#overlay .msg');
 const clearSub = document.getElementById('clearSub');
 const lbBox = document.getElementById('lbBox');
 const lbForm = document.getElementById('lbForm');
+const lbTabs = document.getElementById('lbTabs');
 const lbName = document.getElementById('lbName');
 const lbSubmitBtn = document.getElementById('lbSubmitBtn');
 const lbStatus = document.getElementById('lbStatus');
@@ -442,27 +450,38 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
-async function lbSubmit(name, lv, sc) {
+// RTDB는 (score, mode) 복합 인덱스 쿼리가 안 되므로, 전체 순위(/scores)와 별개로
+// 타임어택 기록만 그대로 복제한 /scoresTA 를 둬 두 순위를 각각 단순 쿼리로 낸다.
+async function lbSubmit(name, lv, sc, mode) {
+  const payload = {name, level: lv, score: sc, ts: Date.now(), mode};
   const res = await fetch(`${LB_DB_URL}/scores.json`, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({name, level: lv, score: sc, ts: Date.now()}),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error('submit failed');
+  if (mode === 'timeattack') {
+    // 부가 인덱스 — 실패해도 전체 순위 등록 자체는 이미 끝났으니 무시
+    fetch(`${LB_DB_URL}/scoresTA.json`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    }).catch(() => {});
+  }
 }
 
 // 순위표 REST 쿼리는 orderBy="score" 로 오름차순만 지원 — limitToLast 로 상위 N 개를
-// 받은 뒤 뒤집어서 내림차순으로 쓴다.
-async function lbTop(n) {
-  const res = await fetch(`${LB_DB_URL}/scores.json?orderBy="score"&limitToLast=${n}`);
+// 받은 뒤 뒤집어서 내림차순으로 쓴다. path 는 'scores'(전체) 또는 'scoresTA'(타임어택만).
+async function lbTop(n, path) {
+  const res = await fetch(`${LB_DB_URL}/${path}.json?orderBy="score"&limitToLast=${n}`);
   if (!res.ok) throw new Error('fetch failed');
   const obj = (await res.json()) || {};
   return Object.values(obj).sort((a, b) => b.score - a.score);
 }
 
 // 등수 = 내 점수보다 높은 기록 수 + 1 (startAt=score+1 로 "초과"만 세어 정수 점수 가정)
-async function lbRank(sc) {
-  const res = await fetch(`${LB_DB_URL}/scores.json?orderBy="score"&startAt=${sc + 1}`);
+async function lbRank(sc, path) {
+  const res = await fetch(`${LB_DB_URL}/${path}.json?orderBy="score"&startAt=${sc + 1}`);
   if (!res.ok) throw new Error('rank fetch failed');
   const obj = (await res.json()) || {};
   return Object.keys(obj).length + 1;
@@ -1285,6 +1304,8 @@ function showGameOver() {
 }
 
 // 타임오버 화면의 순위표 폼을 초기 상태로 (설정 안 됐으면 아예 숨김)
+let lbScope = 'scores';        // 지금 보고 있는 순위표 범위: 'scores'(전체) | 'scoresTA'(타임어택만)
+let lbHighlightScore = null;   // 방금 낸 내 점수 — 탭 전환 시에도 하이라이트 유지
 function resetLeaderboardForm() {
   if (!lbConfigured()) { lbBox.style.display = 'none'; return; }
   lbBox.style.display = '';
@@ -1293,20 +1314,33 @@ function resetLeaderboardForm() {
   lbName.disabled = false;
   lbSubmitBtn.disabled = false;
   lbStatus.textContent = '';
+  lbTabs.style.display = 'none';
   lbList.innerHTML = '';
+  lbScope = 'scores';
+  lbHighlightScore = null;
 }
+
+function setLbScope(scope) {
+  lbScope = scope;
+  for (const b of lbTabs.children) b.classList.toggle('active', b.dataset.scope === scope);
+  renderLeaderboard(lbHighlightScore);
+}
+lbTabs.addEventListener('click', (e) => {
+  const btn = e.target.closest('.lb-tab');
+  if (btn) setLbScope(btn.dataset.scope);
+});
 
 async function renderLeaderboard(highlightScore) {
   lbList.innerHTML = '<li>Loading…</li>';
   try {
-    const top = await lbTop(10);
-    lbList.innerHTML = top.map((e, i) => `
+    const top = await lbTop(10, lbScope);
+    lbList.innerHTML = top.length ? top.map((e, i) => `
       <li class="${e.score === highlightScore ? 'me' : ''}">
         <span class="lb-rank">#${i + 1}</span>
         <span class="lb-name">${escapeHtml(e.name)}</span>
         <span class="lb-level">Lv ${e.level}</span>
         <span class="lb-score">${e.score.toLocaleString()}</span>
-      </li>`).join('');
+      </li>`).join('') : '<li>No records yet.</li>';
   } catch {
     lbList.innerHTML = '<li>Failed to load leaderboard.</li>';
   }
@@ -1315,12 +1349,13 @@ async function renderLeaderboard(highlightScore) {
 lbSubmitBtn.addEventListener('click', async () => {
   const name = lbName.value.trim().slice(0, 12);
   if (!name) { lbStatus.textContent = 'Please enter a name.'; return; }
+  const mode = timeAttack ? 'timeattack' : 'normal';
   lbSubmitBtn.disabled = true;
   lbName.disabled = true;
   lbStatus.textContent = 'Submitting…';
   localStorage.setItem('ae_name', name);
   try {
-    await lbSubmit(name, level, score);
+    await lbSubmit(name, level, score, mode);
   } catch {
     lbStatus.textContent = 'Failed to submit. Check your connection.';
     lbSubmitBtn.disabled = false;
@@ -1329,13 +1364,22 @@ lbSubmitBtn.addEventListener('click', async () => {
   }
   // 제출 자체는 성공 — 이후 등수·순위표 조회는 실패해도 "제출 실패"로 보이면 안 된다
   lbForm.style.display = 'none';
+  lbHighlightScore = score;
   try {
-    const rank = await lbRank(score);
-    lbStatus.innerHTML = `Rank <b style="color:#f5c84c">#${rank.toLocaleString()}</b> — ${escapeHtml(name)}, Lv ${level}, ${score.toLocaleString()}`;
+    const overallRank = await lbRank(score, 'scores');
+    let msg = `Overall Rank <b style="color:#f5c84c">#${overallRank.toLocaleString()}</b>`;
+    if (mode === 'timeattack') {
+      try {
+        const taRank = await lbRank(score, 'scoresTA');
+        msg += ` · Time Attack Rank <b style="color:#f5c84c">#${taRank.toLocaleString()}</b>`;
+      } catch {}
+    }
+    lbStatus.innerHTML = `${msg} — ${escapeHtml(name)}, Lv ${level}, ${score.toLocaleString()}`;
   } catch {
     lbStatus.innerHTML = `Submitted — ${escapeHtml(name)}, Lv ${level}, ${score.toLocaleString()}`;
   }
-  await renderLeaderboard(score);
+  lbTabs.style.display = 'flex';
+  setLbScope(mode === 'timeattack' ? 'scoresTA' : 'scores');
 });
 
 // 타임어택 모드 토글 버튼 (스톱워치 아이콘)
