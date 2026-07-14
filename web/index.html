@@ -61,9 +61,26 @@
   #overlay .stars { font-size: 44px; letter-spacing: 6px; color: #f5c84c; }
   #overlay .stars .off { color: #3a3f58; }
   #overlay .sub { font-size: 15px; color: #aab0c5; text-align: center; line-height: 1.7; }
+  #overlay .sub .best-line { display: inline-block; margin-top: 2px; font-size: 17px; color: #f5c84c; font-weight: 700; }
   #overlay button { background: #8df0d5; color: #1b1d28; font-weight: 700; padding: 10px 24px; }
   .btns { display: flex; gap: 8px; align-items: center; }
   #comboEl b { color: #f5c84c; }
+
+  #lbBox { width: 100%; max-width: 320px; }
+  #lbForm { display: flex; gap: 8px; margin-bottom: 6px; }
+  #lbForm input {
+    flex: 1; min-width: 0; background: #2e3245; color: #e8eaf2; border: none;
+    border-radius: 8px; padding: 8px 12px; font-size: 14px; font-family: inherit;
+  }
+  #lbForm button { padding: 8px 14px; font-size: 13px; white-space: nowrap; }
+  #lbStatus { font-size: 13px; color: #aab0c5; text-align: center; min-height: 1.4em; }
+  #lbList { list-style: none; font-size: 13px; }
+  #lbList li { display: flex; gap: 8px; padding: 4px 8px; border-radius: 6px; color: #aab0c5; }
+  #lbList li.me { background: #2e3245; color: #8df0d5; font-weight: 700; }
+  #lbList .lb-rank { width: 30px; color: #f5c84c; font-weight: 700; }
+  #lbList .lb-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+  #lbList .lb-level { width: 46px; text-align: right; }
+  #lbList .lb-score { width: 68px; text-align: right; font-variant-numeric: tabular-nums; }
 
   /* 좁은 화면(폰): 헤더를 2줄로 — 1줄 [제목 … 버튼], 2줄 [스탯 가운데].
      내부 줄바꿈은 막고(nowrap) 폰트·여백을 줄여 깔끔하게 맞춘다. */
@@ -99,6 +116,14 @@
     <div class="msg">CLEAR!</div>
     <div class="stars" id="starsEl"></div>
     <div class="sub" id="clearSub"></div>
+    <div id="lbBox" style="display:none">
+      <div id="lbForm">
+        <input id="lbName" maxlength="12" placeholder="Your Name" autocomplete="off">
+        <button id="lbSubmitBtn">Submit Score</button>
+      </div>
+      <div id="lbStatus"></div>
+      <ol id="lbList"></ol>
+    </div>
     <button id="againBtn">Next Level ▶</button>
   </div>
 </div>
@@ -366,6 +391,12 @@ const starsEl = document.getElementById('starsEl');
 const overlay = document.getElementById('overlay');
 const overlayMsg = document.querySelector('#overlay .msg');
 const clearSub = document.getElementById('clearSub');
+const lbBox = document.getElementById('lbBox');
+const lbForm = document.getElementById('lbForm');
+const lbName = document.getElementById('lbName');
+const lbSubmitBtn = document.getElementById('lbSubmitBtn');
+const lbStatus = document.getElementById('lbStatus');
+const lbList = document.getElementById('lbList');
 const againBtn = document.getElementById('againBtn');
 
 let snakes = [];      // { cells:[{r,c}...tail→head], dir:{dr,dc}, color, state, t, ... }
@@ -400,6 +431,42 @@ let bestScore = lsInt('ae_best_score', 0);      // 일반 모드 최고 점수
 let bestLevel = lsInt('ae_best_level', 1);      // 일반 모드 최고 점수 달성 시점의 레벨
 let bestTaLevel = lsInt('ae_best_ta_level', 0); // 타임어택 최고 도달 레벨
 let bestTaScore = lsInt('ae_best_ta_score', 0); // 타임어택 최고 도달 레벨의 점수
+
+// ---------- 온라인 순위표 (Firebase Realtime Database REST API) ----------
+// SDK·빌드 없이 fetch() 만으로 연동 — web/index.html 단일 파일 원칙 유지.
+// LB_DB_URL 이 비어 있으면 기능 전체가 조용히 숨는다(설정 전에도 게임은 정상 동작).
+const LB_DB_URL = 'https://arrow-escape-7c2b2-default-rtdb.firebaseio.com';
+const lbConfigured = () => !!LB_DB_URL;
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function lbSubmit(name, lv, sc) {
+  const res = await fetch(`${LB_DB_URL}/scores.json`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name, level: lv, score: sc, ts: Date.now()}),
+  });
+  if (!res.ok) throw new Error('submit failed');
+}
+
+// 순위표 REST 쿼리는 orderBy="score" 로 오름차순만 지원 — limitToLast 로 상위 N 개를
+// 받은 뒤 뒤집어서 내림차순으로 쓴다.
+async function lbTop(n) {
+  const res = await fetch(`${LB_DB_URL}/scores.json?orderBy="score"&limitToLast=${n}`);
+  if (!res.ok) throw new Error('fetch failed');
+  const obj = (await res.json()) || {};
+  return Object.values(obj).sort((a, b) => b.score - a.score);
+}
+
+// 등수 = 내 점수보다 높은 기록 수 + 1 (startAt=score+1 로 "초과"만 세어 정수 점수 가정)
+async function lbRank(sc) {
+  const res = await fetch(`${LB_DB_URL}/scores.json?orderBy="score"&startAt=${sc + 1}`);
+  if (!res.ok) throw new Error('rank fetch failed');
+  const obj = (await res.json()) || {};
+  return Object.keys(obj).length + 1;
+}
 
 // localStorage 정수 읽기 — 값이 없거나 손상돼도 기본값으로 (NaN 전파 방지)
 function lsInt(key, def) {
@@ -1139,7 +1206,8 @@ function onClick(e) {
             `Level ${level.toLocaleString()} Clear — Clicks ${moves.toLocaleString()}/${budget.toLocaleString()}<br>` +
             `Score <b style="color:#8df0d5">${score.toLocaleString()}</b><br>` +
             (newBest ? `<b style="color:#f5c84c">🏆 New Best! (Level ${level.toLocaleString()})</b>`
-                     : `Best Level ${bestLevel.toLocaleString()} · Score ${bestScore.toLocaleString()}`);
+                     : `<span class="best-line">🏆 Best Level <b>${bestLevel.toLocaleString()}</b> · Score <b>${bestScore.toLocaleString()}</b></span>`);
+          lbBox.style.display = 'none'; // 순위표는 타임오버 전용 — 레벨 클리어 화면엔 안 보임
           overlay.classList.add('show');
         }, 1200);
       }
@@ -1210,10 +1278,65 @@ function showGameOver() {
   clearSub.innerHTML =
     `Level ${level.toLocaleString()} Reached · Score <b style="color:#8df0d5">${score.toLocaleString()}</b><br>` +
     (newBest ? `<b style="color:#f5c84c">🏆 New Best Level!</b>`
-             : `Best Level ${bestTaLevel.toLocaleString()} · Score ${bestTaScore.toLocaleString()}`);
+             : `<span class="best-line">🏆 Best Level <b>${bestTaLevel.toLocaleString()}</b> · Score <b>${bestTaScore.toLocaleString()}</b></span>`);
   againBtn.textContent = 'Restart';
   overlay.classList.add('show');
+  resetLeaderboardForm();
 }
+
+// 타임오버 화면의 순위표 폼을 초기 상태로 (설정 안 됐으면 아예 숨김)
+function resetLeaderboardForm() {
+  if (!lbConfigured()) { lbBox.style.display = 'none'; return; }
+  lbBox.style.display = '';
+  lbForm.style.display = '';
+  lbName.value = localStorage.getItem('ae_name') || '';
+  lbName.disabled = false;
+  lbSubmitBtn.disabled = false;
+  lbStatus.textContent = '';
+  lbList.innerHTML = '';
+}
+
+async function renderLeaderboard(highlightScore) {
+  lbList.innerHTML = '<li>Loading…</li>';
+  try {
+    const top = await lbTop(10);
+    lbList.innerHTML = top.map((e, i) => `
+      <li class="${e.score === highlightScore ? 'me' : ''}">
+        <span class="lb-rank">#${i + 1}</span>
+        <span class="lb-name">${escapeHtml(e.name)}</span>
+        <span class="lb-level">Lv ${e.level}</span>
+        <span class="lb-score">${e.score.toLocaleString()}</span>
+      </li>`).join('');
+  } catch {
+    lbList.innerHTML = '<li>Failed to load leaderboard.</li>';
+  }
+}
+
+lbSubmitBtn.addEventListener('click', async () => {
+  const name = lbName.value.trim().slice(0, 12);
+  if (!name) { lbStatus.textContent = 'Please enter a name.'; return; }
+  lbSubmitBtn.disabled = true;
+  lbName.disabled = true;
+  lbStatus.textContent = 'Submitting…';
+  localStorage.setItem('ae_name', name);
+  try {
+    await lbSubmit(name, level, score);
+  } catch {
+    lbStatus.textContent = 'Failed to submit. Check your connection.';
+    lbSubmitBtn.disabled = false;
+    lbName.disabled = false;
+    return;
+  }
+  // 제출 자체는 성공 — 이후 등수·순위표 조회는 실패해도 "제출 실패"로 보이면 안 된다
+  lbForm.style.display = 'none';
+  try {
+    const rank = await lbRank(score);
+    lbStatus.innerHTML = `Rank <b style="color:#f5c84c">#${rank.toLocaleString()}</b> — ${escapeHtml(name)}, Lv ${level}, ${score.toLocaleString()}`;
+  } catch {
+    lbStatus.innerHTML = `Submitted — ${escapeHtml(name)}, Lv ${level}, ${score.toLocaleString()}`;
+  }
+  await renderLeaderboard(score);
+});
 
 // 타임어택 모드 토글 버튼 (스톱워치 아이콘)
 const modeBtn = document.getElementById('modeBtn');
