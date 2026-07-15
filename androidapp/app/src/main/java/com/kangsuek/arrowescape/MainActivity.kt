@@ -3,6 +3,7 @@ package com.kangsuek.arrowescape
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.os.Bundle
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 
@@ -25,6 +26,10 @@ class MainActivity : Activity() {
             javaScriptEnabled = true                     // 게임은 캔버스 + JS
             domStorageEnabled = true                     // localStorage (음소거 설정 저장)
             mediaPlaybackRequiresUserGesture = false     // WebAudio 효과음
+            // WebView 가 file:///android_asset/ 콘텐츠를 내부 캐시에 남겨두면, 앱을
+            // 재설치(adb install -r)하거나 스토어에서 업데이트해도 이전 index.html이
+            // 그대로 보이는 경우가 있다. 매번 APK 안의 최신 asset을 읽도록 강제한다.
+            cacheMode = WebSettings.LOAD_NO_CACHE
         }
         webView.setBackgroundColor(0xFF1B1D28.toInt())   // 게임 배경색과 일치
 
