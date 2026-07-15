@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 로컬 assets(index.html)만 로드하므로 INTERNET 권한이 필요 없다 -->
+<!-- assets(index.html) 자체는 로컬 로드지만, 온라인 순위표(Firebase REST fetch)가
+     인터넷을 쓰므로 INTERNET 권한이 필요하다. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:allowBackup="true"

@@ -3,6 +3,15 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+// Play 스토어 릴리스 서명 키 — 비밀번호가 든 keystore.properties 는 git에 커밋하지
+// 않는다(.gitignore 처리). 없으면 release 빌드는 서명 없이 만들어진다(로컬 테스트용
+// 산출물일 뿐, 이대로는 Play Console 업로드 불가). 준비 방법: androidapp/README.md 참조.
+def keystorePropertiesFile = rootProject.file('keystore.properties')
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
     namespace = 'com.kangsuek.arrowescape'
     compileSdk = 36          // 이 개발 머신에 설치된 SDK 플랫폼(android-36)에 맞춤
@@ -15,8 +24,22 @@ android {
         versionName = "1.0.0"
     }
 
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (keystorePropertiesFile.exists()) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled = false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }

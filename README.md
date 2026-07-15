@@ -77,3 +77,7 @@ PNG 로 추출한 것이 `macapp/build/icon.png`. 수정 후 `macapp/scripts/mak
 ## 문서
 
 - [화살표 생성 규칙](docs/GENERATION_RULES.md) — 퍼즐 생성 알고리즘과 풀이 가능성 보장 원리
+- [Google Play 등록 체크리스트](docs/PLAY_STORE.md) — 서명 키·개인정보처리방침·
+  스토어 등록정보 등 안드로이드 앱 출시 준비 상태와 남은 작업
+- [개인정보처리방침](docs/privacy.html) — GitHub Pages로 게시(Settings → Pages,
+  `main` / `/docs`)하면 `https://kangsuek.github.io/ArrowEscape/privacy.html`
