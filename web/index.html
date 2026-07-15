@@ -545,6 +545,12 @@ function makeOcc() {
   return Array.from({length: ROWS}, () => new Array(COLS).fill(-1));
 }
 
+// 화살표가 아직 놓일 수 있는 빈칸인지(모양 안, 지형 없음, 다른 화살표 없음) —
+// rayEmpty 판정과 탈출 경로 등록(rayCellsOf)이 이 조건을 공유한다.
+function placeableEmpty(r, c, grid) {
+  return mask[r][c] && !terrain[r][c] && grid[r][c] === -1;
+}
+
 function randomWalk(grid, start, target, straightBias) {
   const path = [start];
   const visited = new Set([start.r * COLS + start.c]);
@@ -666,7 +672,7 @@ function generateSnakes() {
         const rad = Math.max(2, COLS * 0.30);
         let rayEmpty = 0, centerCross = 0;
         for (const p of res.ray.cells) {
-          if (mask[p.r][p.c] && !terrain[p.r][p.c] && grid[p.r][p.c] === -1) rayEmpty++;
+          if (placeableEmpty(p.r, p.c, grid)) rayEmpty++;
           if (Math.hypot(p.r - cr, p.c - cc) <= rad) centerCross++;
         }
         // 금지 배치:
@@ -713,7 +719,7 @@ function generateSnakes() {
     // 새 화살표의 탈출 경로(나중에 화살표가 놓일 수 있는 빈칸만) 등록
     const rc = [];
     for (const p of best.ray.cells) {
-      if (mask[p.r][p.c] && !terrain[p.r][p.c] && grid[p.r][p.c] === -1) rc.push(p.r * COLS + p.c);
+      if (placeableEmpty(p.r, p.c, grid)) rc.push(p.r * COLS + p.c);
     }
     rayCellsOf[id] = rc;
     freeSet.add(id);
@@ -900,7 +906,7 @@ function reseed(gen) {
         const h = cells[cells.length - 1];
         let rayEmpty = 0;
         for (const p of res.ray.cells) {
-          if (mask[p.r][p.c] && !terrain[p.r][p.c] && grid[p.r][p.c] === -1) rayEmpty++;
+          if (placeableEmpty(p.r, p.c, grid)) rayEmpty++;
         }
         if (rayEmpty === 0 || outwardHeadBanned(h, snake.dir)) continue;
         snake.raySet = new Set(res.ray.cells.map(p => p.r * COLS + p.c));

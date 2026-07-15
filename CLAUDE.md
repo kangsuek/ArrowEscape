@@ -86,22 +86,39 @@ docs/            설계 문서 (GENERATION_RULES.md)
    표시해 몸통을 두 조각으로 그린다. 지형은 파이프 몸통(화살표 아래) →
    화살표 → 파이프 윤곽·포털 고리(화살표 위) 순서로 그린다.
 5. **모드·기록·저장** — 진입점은 `boot()`(일반 모드면 저장된 레벨 이어하기,
-   타임어택이면 `startRun()`으로 새 런). 타임어택은 `frame()`에서 실제 시간으로
-   카운트다운하고, 화살표 1개 탈출마다 `TA_ARROW_BONUS`가 즉시 붙고 레벨 클리어 시
-   `taBonus()`가 추가로 붙는다(둘은 누적, 하나가 다른 하나를 대체하지 않음). 오클릭
-   시 시간 차감, 0이 되면 `showGameOver()`. `score`는 레벨이 올라가도 초기화되지
-   않는 런 전체 누적값이다(레벨 클리어마다 리셋하던 과거 방식에서 변경). 영속
-   상태는 전부 `localStorage`의 `ae_*` 키 — 이어하기: `ae_level`·`ae_total`(=`score`),
-   기록: `ae_best_score`·`ae_best_level`(일반 모드, 쌍으로 갱신)과
+   타임어택이면 `startRun()`으로 새 런). `startRun()`이 타임어택으로 시작할 때마다
+   `showTaStartBanner()`가 중앙에서 확대되며 사라지는 "TIME ATTACK START!" 배너를
+   재생한다(reflow 강제로 재실행마다 애니메이션 재시작). 타임어택은 `frame()`에서
+   실제 시간으로 카운트다운하고, 화살표 1개 탈출마다 `TA_ARROW_BONUS`가 즉시 붙고
+   레벨 클리어 시 `taBonus()`가 추가로 붙는다(둘은 누적, 하나가 다른 하나를 대체하지
+   않음). 오클릭 시 시간 차감, 0이 되면 `showGameOver()`(엔딩은 `playGameOverJingle()`
+   오리지널 팡파레). `score`는 레벨이 올라가도 초기화되지 않는 런 전체 누적값이다
+   (레벨 클리어마다 리셋하던 과거 방식에서 변경). 영속 상태는 전부 `localStorage`의
+   `ae_*` 키 — 이어하기: `ae_level`·`ae_total`(=`score`), 기록:
+   `ae_best_score`·`ae_best_level`(일반 모드, 쌍으로 갱신)과
    `ae_best_ta_level`·`ae_best_ta_score`(타임어택, 쌍으로 갱신), 설정:
-   `ae_timeattack`·`ae_muted` — 읽기는 `lsInt()`로 NaN 방어. 햅틱은 `vibrate()`
-   (안드로이드만 유효), 사운드는 WebAudio 합성(`ensureAudio()`가 suspended
-   컨텍스트를 첫 클릭에 resume). 타임어택 잔여 10초 이하부터는 `bgmTick()`이
-   120bpm 고정 템포의 저음 2연타 BGM을 재생하며 `maybeStartBgm()`/`stopBgm()`으로
-   구간 진입·이탈(보너스로 다시 10초 초과, 타임오버, 모드 전환)을 관리한다 —
-   새 사운드 연출을 추가할 때도 이 시작/정지 훅 패턴을 따를 것.
+   `ae_timeattack`·`ae_muted`, 순위표 입력 기억: `ae_name`·`ae_country` — 읽기는
+   `lsInt()`로 NaN 방어. 햅틱은 `vibrate()`(안드로이드만 유효), 사운드는 WebAudio
+   합성(`ensureAudio()`가 suspended 컨텍스트를 첫 클릭에 resume). 타임어택 잔여
+   10초 이하부터는 `bgmTick()`이 120bpm 고정 템포의 저음 2연타 BGM을 재생하며
+   `maybeStartBgm()`/`stopBgm()`으로 구간 진입·이탈(보너스로 다시 10초 초과,
+   타임오버, 모드 전환)을 관리한다 — 새 사운드 연출을 추가할 때도 이 시작/정지
+   훅 패턴을 따를 것.
+6. **온라인 순위표** — Firebase Realtime Database 를 SDK 없이 REST `fetch()`로만
+   연동(`LB_DB_URL`, `web/index.html` 단일 파일 원칙 유지). **타임오버(`showGameOver()`)
+   에서만** 폼이 뜬다 — 레벨 클리어(일반 모드)는 등록 대상이 아니다. 순위는 `/scores`
+   하나뿐(과거에 전체/타임어택 탭으로 나눴다가 항상 같은 목록이라 의미가 없어
+   되돌림 — 등록 조건을 새로 만들지 않는 한 다시 나누지 말 것). 국가는 IP 추론이
+   아닌 **자기선택**(`COUNTRIES` 드롭다운, 국기는 `countryFlag()`가 ISO 코드를
+   유니코드 지역 표시 기호로 변환 — 이미지 자산 불필요) — 위치정보 수집 없이
+   앱스토어 개인정보 고지 부담을 피하기 위한 의도적 선택. 이름은 `isNameBlocked()`
+   금칙어 필터(클라이언트 한정, 완벽하지 않음)를 통과해야 하고, Firebase 에서 온
+   `name` 은 신뢰할 수 없으므로 `innerHTML` 삽입 전 반드시 `escapeHtml()`을 거친다.
+   순위 조회(`lbRank`)가 실패해도 점수 등록 자체(`lbSubmit`)는 이미 성공했을 수
+   있으므로 두 단계를 분리해 처리한다 — 합쳐서 하나로 catch 하면 "제출 성공,
+   조회 실패"가 "제출 실패"로 잘못 표시된다.
 
 공용 검사 함수(`traceRay`, `countBends`, `outwardHeadBanned`, `onLaterRay`,
-`selfRayBlocked`)는 생성·연장·파종 세 경로가 공유한다. 규칙을 바꿀 때 인라인으로
-복사하지 말고 이 함수들을 수정할 것 — 과거에 세 곳 중복으로 규칙이 어긋난 적이
-있어 통합했다.
+`selfRayBlocked`, `placeableEmpty`)는 생성·연장·파종 세 경로가 공유한다. 규칙을
+바꿀 때 인라인으로 복사하지 말고 이 함수들을 수정할 것 — 과거에 세 곳 중복으로
+규칙이 어긋난 적이 있어 통합했다.
